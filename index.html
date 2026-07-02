@@ -1,0 +1,1852 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Gobble — Simultaneous Snake Sandbox</title>
+<!--
+  ═══════════════════════════════════════════════════════════════════════════
+  GOBBLE — a playable prototype + data-simulation sandbox for a
+  simultaneous-programming snake board game.
+
+  HOW TO RUN
+    Save this file as gobble.html (or index.html) and open it in any modern
+    browser. Styling is served by the Tailwind CDN, so the first load needs an
+    internet connection (the game engine itself is 100% local & offline-safe).
+
+  WHAT'S INSIDE (single file, zero build step, vanilla JS)
+    §0  Utilities & seeded RNG
+    §1  Config schema + control panel builder
+    §2  Spawn-node distribution (farthest-point sampling)
+    §3  Game engine (pure & headless — no DOM references)
+    §4  Bot AI (self-preservation → food seeking → 25% turbo)
+    §5  Headless game runner + batch aggregation
+    §6  Canvas renderer
+    §7  Live game controller (programming / panic timer / playback phases)
+    §8  Command strip UI
+    §9  Simulation dashboard
+    §10 Boot & wiring
+
+  RULES-EDGE-CASE RULINGS (where the tabletop spec needs a referee):
+    • "Gap space" — when a head slides forward, the vacated cell is immediately
+      re-filled by a tail/new piece, so it is NEVER enterable by another snake
+      on that same tick. Two snakes swapping head positions therefore both die.
+      (Implemented naturally: collisions are evaluated against pre-slide bodies
+      minus cleared tails.)
+    • A stationary snake's head (e.g. during someone else's turbo sub-step)
+      counts as a body obstacle — "head-to-head" requires BOTH heads to enter
+      the same cell on the same sub-step.
+    • Turbo is resolved as sub-steps: on sub-step 1 every mover advances one
+      cell simultaneously; on sub-steps 2..turboDistance only turbo snakes
+      keep sliding. Collisions/food are evaluated per sub-step.
+    • Turbo energy is checked at execution time; if the player can no longer
+      afford it the move silently downgrades to a normal 1-cell move.
+    • A dead snake's HEAD token exits the board; only its body/tail chips flip
+      into bounty food. A tail piece already "in hand" (cleared this sub-step)
+      exits with the player.
+    • Eaten NEUTRAL tokens return to the reserve pool (they can respawn later);
+      eaten BOUNTY chips leave the game for good.
+    • End-of-round spawning rolls ceil(reserve/2) tokens so a lone last token
+      still gets a chance.
+    • Respawn nodes are blocked ONLY by snake bodies (per the rules). Since
+      food deliberately lives on spawn nodes, a snake spawning onto a chip
+      simply eats it on the spot with the normal eating rules. Dead players
+      are processed in a random order each round so seat number never decides
+      who wins a scarce free node. Respawned snakes enter "coiled" (all
+      segments stacked on the node) and un-stack as they move — the node
+      stays solid until the stack unwinds.
+    • Snake growth is capped by maxSnakeLength ("both capped by global
+      variables"): at the cap, eating still yields energy but no new segment.
+    • maxRounds is a sandbox guard: if no one reaches pointsToWin in time the
+      highest score wins (ties broken randomly). Reported as "round cap".
+  ═══════════════════════════════════════════════════════════════════════════
+-->
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<style>
+  /* Minimal hand-rolled CSS: only what Tailwind utilities can't express */
+  html { color-scheme: dark; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+
+  /* slim scrollbars for the side panels */
+  .slim-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+  .slim-scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 8px; }
+  .slim-scroll::-webkit-scrollbar-track { background: transparent; }
+
+  /* panic bar pulse when time is nearly up */
+  @keyframes panicPulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+  .panic-critical { animation: panicPulse .5s linear infinite; }
+
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px);} to { opacity: 1; transform: none;} }
+  .fade-in { animation: fadeIn .18s ease-out; }
+
+  /* number inputs: keep spinners visible & compact */
+  input[type=number] { -moz-appearance: textfield; }
+  input[type=number]:hover::-webkit-inner-spin-button { opacity: 1; }
+
+  /* toggle switch (Sim Mode) — input stays in the a11y tree, just invisible */
+  .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .switch .track { transition: background .15s; }
+  .switch .knob  { transition: transform .15s; }
+  .switch input:checked + .track { background: #f59e0b; }
+  .switch input:checked + .track .knob { transform: translateX(16px); }
+
+  /* chart bars grow in when results render */
+  @keyframes growBar { from { width: 0; } }
+  .grow-bar { animation: growBar .5s cubic-bezier(.2,.7,.3,1); }
+</style>
+</head>
+
+<body class="h-full bg-slate-950 text-slate-100 overflow-hidden">
+<div id="app" class="h-full flex flex-col">
+
+  <!-- ══════════════ HEADER ══════════════ -->
+  <header class="flex items-center gap-3 px-4 py-2 border-b border-slate-800 bg-slate-900/60 shrink-0">
+    <div class="text-2xl leading-none select-none">🐍</div>
+    <div>
+      <h1 class="font-black tracking-widest text-lg leading-tight">GOBBLE</h1>
+      <p class="text-[11px] text-slate-400 leading-tight -mt-0.5">simultaneous-programming snake · prototype &amp; simulation sandbox</p>
+    </div>
+
+    <div class="ml-auto flex items-center gap-4">
+      <!-- playback speed for live resolution -->
+      <label class="flex items-center gap-1.5 text-xs text-slate-400">
+        <span>Playback</span>
+        <select id="speedSelect" class="bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-xs text-slate-200">
+          <option value="0.5">0.5×</option>
+          <option value="1" selected>1×</option>
+          <option value="2">2×</option>
+          <option value="4">4×</option>
+        </select>
+      </label>
+
+      <!-- Simulation Mode master switch: hides the board, shows the analytics view -->
+      <label class="switch flex items-center gap-2 cursor-pointer select-none">
+        <span class="text-xs font-semibold text-slate-300">Simulation Mode</span>
+        <input type="checkbox" id="simModeToggle">
+        <span class="track relative inline-block w-9 h-5 rounded-full bg-slate-700">
+          <span class="knob absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow"></span>
+        </span>
+      </label>
+    </div>
+  </header>
+
+  <div class="flex flex-1 min-h-0">
+
+    <!-- ══════════════ LEFT: DASHBOARD & VARIABLE CONTROL PANEL ══════════════ -->
+    <aside class="w-[21rem] shrink-0 border-r border-slate-800 bg-slate-900/40 overflow-y-auto slim-scroll p-4 space-y-5">
+
+      <div class="flex gap-2">
+        <button id="btnNewGame" class="flex-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg px-3 py-2 text-sm transition-colors">🎮 New Game</button>
+        <button id="btnDefaults" class="bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg px-3 py-2 text-sm transition-colors" title="Reset every variable to its default">↺</button>
+      </div>
+      <p class="text-[11px] text-slate-500 -mt-2">Variable changes apply when a new game or simulation starts.</p>
+
+      <!-- variable groups are generated here by §1 -->
+      <div id="configGroups" class="space-y-5"></div>
+
+      <!-- Length → points table editor -->
+      <section>
+        <h3 class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">Length score table <span class="normal-case font-normal text-slate-500">(points banked on death)</span></h3>
+        <div id="scoreTableRows" class="space-y-1.5"></div>
+        <button id="btnAddScoreRow" class="mt-2 text-xs text-emerald-400 hover:text-emerald-300">+ add threshold</button>
+      </section>
+
+      <!-- Seats: who is human, who is a bot -->
+      <section>
+        <h3 class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">Seats <span class="normal-case font-normal text-slate-500">(pass-and-play: set 2+ humans)</span></h3>
+        <div id="seatRows" class="space-y-1.5"></div>
+      </section>
+    </aside>
+
+    <!-- ══════════════ CENTER: BOARD VIEW  /  SIMULATION VIEW ══════════════ -->
+    <main class="flex-1 min-w-0 flex flex-col bg-slate-950">
+
+      <!-- ───── live view ───── -->
+      <div id="liveView" class="flex-1 flex flex-col min-h-0">
+
+        <!-- status bar: round chip · phase text · panic timer -->
+        <div class="px-4 py-2 border-b border-slate-800/70 flex items-center gap-3 shrink-0">
+          <span id="roundChip" class="text-xs font-bold bg-slate-800 rounded-full px-3 py-1 text-slate-200">—</span>
+          <span id="phaseText" class="text-xs text-slate-400">Press <b class="text-slate-200">New Game</b> to deal the board.</span>
+          <!-- The Panic Timer: appears the moment the first player locks in -->
+          <div id="panicWrap" class="hidden ml-auto flex items-center gap-2 w-64">
+            <span id="panicLabel" class="text-[11px] font-bold text-amber-400 whitespace-nowrap">⏱ 15.0s</span>
+            <div class="flex-1 h-2.5 bg-slate-800 rounded-full overflow-hidden">
+              <div id="panicBar" class="h-full bg-amber-400 rounded-full" style="width:100%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- board canvas -->
+        <div id="boardWrap" class="flex-1 relative min-h-0 flex items-center justify-center p-3">
+          <canvas id="board" class="rounded-lg shadow-2xl shadow-black/50"></canvas>
+
+          <!-- pass-the-device interstitial (hot-seat privacy screen) -->
+          <div id="passOverlay" class="hidden absolute inset-0 bg-slate-950/95 backdrop-blur-sm flex items-center justify-center z-20">
+            <div class="text-center space-y-4 fade-in">
+              <div id="passIcon" class="text-5xl">🫱</div>
+              <div id="passText" class="text-xl font-bold"></div>
+              <p class="text-sm text-slate-400 max-w-xs mx-auto">Pass the device. Other players, look away — the command strip is secret!</p>
+              <button id="passStart" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg px-6 py-2.5">Start programming</button>
+            </div>
+          </div>
+
+          <!-- game over overlay -->
+          <div id="gameOverOverlay" class="hidden absolute inset-0 bg-slate-950/90 backdrop-blur-sm flex items-center justify-center z-30">
+            <div class="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-[26rem] max-w-[92%] space-y-4 fade-in shadow-2xl">
+              <div class="text-center space-y-1">
+                <div class="text-4xl">🏆</div>
+                <div id="winnerText" class="text-xl font-black"></div>
+                <div id="winnerSub" class="text-xs text-slate-400"></div>
+              </div>
+              <div id="finalStandings" class="space-y-1.5"></div>
+              <div class="flex gap-2 pt-1">
+                <button id="btnRematch" class="flex-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg px-3 py-2 text-sm">Rematch</button>
+                <button id="btnCloseOver" class="bg-slate-800 hover:bg-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300">View board</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- command strip / reveal area -->
+        <div id="stripArea" class="border-t border-slate-800 bg-slate-900/50 p-3 shrink-0 min-h-[7.5rem]"></div>
+      </div>
+
+      <!-- ───── simulation view (visible only in Sim Mode) ───── -->
+      <div id="simView" class="hidden flex-1 overflow-y-auto slim-scroll p-5">
+        <div class="max-w-5xl mx-auto space-y-5">
+
+          <!-- run controls -->
+          <section class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-wrap items-center gap-4">
+            <div class="flex items-center gap-2">
+              <label for="simRuns" class="text-sm text-slate-300 font-semibold">Test runs</label>
+              <input id="simRuns" type="number" min="1" max="2000" value="100"
+                     class="w-24 bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-sm text-right">
+            </div>
+            <button id="btnRunSim" class="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg px-5 py-2 text-sm">▶ Run Simulation</button>
+            <div class="flex-1 min-w-[10rem]">
+              <div class="h-2 bg-slate-800 rounded-full overflow-hidden">
+                <div id="simProgress" class="h-full bg-amber-400 rounded-full" style="width:0%"></div>
+              </div>
+              <div id="simStatus" class="text-[11px] text-slate-500 mt-1">Headless batch uses the sidebar variables with every seat bot-controlled.</div>
+            </div>
+          </section>
+
+          <!-- results dashboard rendered by §9 -->
+          <div id="simResults"></div>
+        </div>
+      </div>
+    </main>
+
+    <!-- ══════════════ RIGHT: SCOREBOARD & EVENT LOG ══════════════ -->
+    <aside id="rightPanel" class="w-72 shrink-0 border-l border-slate-800 bg-slate-900/40 overflow-y-auto slim-scroll p-3 space-y-3">
+      <section>
+        <h3 class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">Players</h3>
+        <div id="scoreboard" class="space-y-2">
+          <p class="text-xs text-slate-600">No game running.</p>
+        </div>
+      </section>
+      <section>
+        <h3 class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">Event log</h3>
+        <div id="eventLog" class="space-y-1 text-[11px] leading-snug"></div>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<script id="app-js">
+'use strict';
+/* ════════════════════════════════════════════════════════════════════════
+   §0 UTILITIES & SEEDED RNG
+   ════════════════════════════════════════════════════════════════════════ */
+
+/** The four compass moves. Order matters only for UI display. */
+const DIRS = {
+  up:    { dx: 0, dy: -1, glyph: '↑' },
+  right: { dx: 1, dy:  0, glyph: '→' },
+  down:  { dx: 0, dy:  1, glyph: '↓' },
+  left:  { dx: -1, dy: 0, glyph: '←' },
+};
+const DIR_LIST = ['up', 'right', 'down', 'left'];
+
+/** Pack a cell into a small integer key (board ≤ 64×64). */
+const cellKey = (x, y) => (y << 6) | x;
+
+/** mulberry32 — tiny deterministic PRNG so simulation batches are cheap. */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const rngInt = (rng, n) => Math.floor(rng() * n);          // 0..n-1
+const rngPick = (rng, arr) => arr[rngInt(rng, arr.length)];
+function rngShuffle(rng, arr) {                            // in-place Fisher–Yates
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = rngInt(rng, i + 1);
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const fmt1 = (n) => (Math.round(n * 10) / 10).toFixed(1);
+
+/* Player colors.
+   BRIGHT set = board tokens & UI identity (validated: contrast ≥3:1 on the
+   dark surface, worst adjacent CVD ΔE 22.8).
+   CHART set  = the same eight hues stepped darker for dashboard bars
+   (validated: OKLCH L band, chroma, CVD, contrast all pass on #0f172a). */
+const SEAT_COLORS = [
+  { name: 'Green',  bright: '#4ade80', chart: '#16a34a' },
+  { name: 'Blue',   bright: '#60a5fa', chart: '#3b82f6' },
+  { name: 'Red',    bright: '#f87171', chart: '#ef4444' },
+  { name: 'Yellow', bright: '#facc15', chart: '#a16207' },
+  { name: 'Purple', bright: '#c084fc', chart: '#a855f7' },
+  { name: 'Cyan',   bright: '#22d3ee', chart: '#0891b2' },
+  { name: 'Orange', bright: '#fb923c', chart: '#ea580c' },
+  { name: 'Pink',   bright: '#f472b6', chart: '#ec4899' },
+];
+/* Death-cause palette (reference categorical slots 1–3, validated on #0f172a). */
+const CAUSE_COLORS = { wall: '#3987e5', head: '#199e70', body: '#c98500' };
+const CAUSE_LABELS = { wall: 'Wall crash', head: 'Head-to-head', body: 'Body crash' };
+
+/* ════════════════════════════════════════════════════════════════════════
+   §1 CONFIG SCHEMA + CONTROL PANEL
+   Every tunable exposed in the sidebar lives here. `def` = default.
+   ════════════════════════════════════════════════════════════════════════ */
+
+const CONFIG_FIELDS = [
+  // ── board & players ──
+  { id: 'boardSize',           label: 'Board size (N×N)',        min: 8,  max: 24,  def: 12,  group: 'Board & players', hint: 'Grid dimensions' },
+  { id: 'playerCount',         label: 'Players',                 min: 2,  max: 8,   def: 4,   group: 'Board & players', hint: '2–8 snakes' },
+  { id: 'spawnLocationsCount', label: 'Spawn nodes',             min: 4,  max: 64,  def: 30,  group: 'Board & players', hint: 'Fixed nodes shared by respawns & food' },
+  { id: 'startingLength',      label: 'Starting length',         min: 2,  max: 8,   def: 4,   group: 'Board & players', hint: 'Segments at spawn (incl. head)' },
+  // ── movement & turbo ──
+  { id: 'commandSlots',        label: 'Command slots',           min: 2,  max: 8,   def: 5,   group: 'Movement & turbo', hint: 'Moves programmed per round' },
+  { id: 'turboDistance',       label: 'Turbo distance',          min: 2,  max: 6,   def: 3,   group: 'Movement & turbo', hint: 'Cells covered by one turbo slide' },
+  { id: 'turboEnergyCost',     label: 'Turbo energy cost',       min: 0,  max: 6,   def: 1,   group: 'Movement & turbo', hint: 'Energy spent per turbo slot' },
+  { id: 'maxEnergyStorage',    label: 'Max energy storage',      min: 1,  max: 20,  def: 6,   group: 'Movement & turbo', hint: 'Energy hoard cap' },
+  // ── food economy ──
+  { id: 'totalFoodTokens',     label: 'Total food tokens',       min: 5,  max: 120, def: 40,  group: 'Food economy', hint: 'Neutral tokens in the whole system' },
+  { id: 'startingFoodInPlay',  label: 'Starting food in play',   min: 0,  max: 120, def: 20,  group: 'Food economy', hint: 'Neutral tokens on the board at start' },
+  { id: 'foodEnergyYield',     label: 'Food energy yield',       min: 1,  max: 8,   def: 2,   group: 'Food economy', hint: 'Energy per neutral token' },
+  { id: 'bountyEnergyYield',   label: 'Bounty energy yield',     min: 1,  max: 12,  def: 4,   group: 'Food economy', hint: 'Energy per dead-snake chip' },
+  // ── match & guards ──
+  { id: 'pointsToWin',         label: 'Points to win',           min: 10, max: 500, def: 100, group: 'Match rules', hint: 'Instant victory threshold' },
+  { id: 'maxSnakeLength',      label: 'Max snake length',        min: 6,  max: 64,  def: 20,  group: 'Match rules', hint: 'Body-piece supply cap' },
+  { id: 'maxRounds',           label: 'Max rounds (guard)',      min: 10, max: 500, def: 100, group: 'Match rules', hint: 'Highest score wins at the cap' },
+  { id: 'panicSeconds',        label: 'Panic timer (s)',         min: 5,  max: 60,  def: 15,  group: 'Match rules', hint: 'Countdown once the first player locks' },
+];
+
+/** Default length→points thresholds: 4=0 · 5-7=5 · 8-10=15 · 11+=30. */
+const DEFAULT_SCORE_TABLE = [
+  { min: 1, pts: 0 }, { min: 5, pts: 5 }, { min: 8, pts: 15 }, { min: 11, pts: 30 },
+];
+
+/** Build the sidebar inputs from the schema (one-time). */
+function buildConfigPanel() {
+  const groups = {};
+  for (const f of CONFIG_FIELDS) (groups[f.group] ??= []).push(f);
+  const host = $('configGroups');
+  host.innerHTML = Object.entries(groups).map(([g, fields]) => `
+    <section>
+      <h3 class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">${g}</h3>
+      <div class="space-y-1.5">
+        ${fields.map((f) => `
+          <label class="flex items-center gap-2 group" title="${esc(f.hint)}">
+            <span class="flex-1 text-xs text-slate-300">${f.label}</span>
+            <input id="cfg-${f.id}" type="number" min="${f.min}" max="${f.max}" value="${f.def}"
+                   class="w-[4.5rem] bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-right
+                          focus:border-emerald-500 focus:outline-none">
+          </label>`).join('')}
+      </div>
+    </section>`).join('');
+}
+
+/** Render the score-table editor rows from an array of {min, pts}. */
+function renderScoreTable(rows) {
+  $('scoreTableRows').innerHTML = rows.map((r, i) => `
+    <div class="flex items-center gap-2 text-xs" data-score-row>
+      <span class="text-slate-500 w-14">length ≥</span>
+      <input type="number" min="1" max="64" value="${r.min}" data-st-min class="w-14 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-right">
+      <span class="text-slate-500">→</span>
+      <input type="number" min="0" max="999" value="${r.pts}" data-st-pts class="w-16 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-right">
+      <span class="text-slate-500">pts</span>
+      <button data-st-del="${i}" class="ml-auto text-slate-600 hover:text-rose-400" title="Remove row">✕</button>
+    </div>`).join('');
+  // wire row deletion (rebuild from current DOM state minus the row)
+  $('scoreTableRows').querySelectorAll('[data-st-del]').forEach((btn) => {
+    btn.onclick = () => {
+      const rows = readScoreTable();
+      rows.splice(Number(btn.dataset.stDel), 1);
+      renderScoreTable(rows.length ? rows : [{ min: 1, pts: 0 }]);
+    };
+  });
+}
+
+/** Read score-table rows back out of the DOM (sorted by min ascending). */
+function readScoreTable() {
+  return [...$('scoreTableRows').querySelectorAll('[data-score-row]')].map((row) => ({
+    min: clamp(Number(row.querySelector('[data-st-min]').value) || 1, 1, 64),
+    pts: clamp(Number(row.querySelector('[data-st-pts]').value) || 0, 0, 999),
+  })).sort((a, b) => a.min - b.min);
+}
+
+/** Seat setup state (persists across games): type + editable name per seat. */
+const seatSetup = SEAT_COLORS.map((c, i) => ({ name: `P${i + 1}`, isBot: i !== 0 }));
+
+/** Render seat rows for the current playerCount. */
+function renderSeatRows() {
+  const n = clamp(Number($('cfg-playerCount').value) || 4, 2, 8);
+  $('seatRows').innerHTML = seatSetup.slice(0, n).map((s, i) => `
+    <div class="flex items-center gap-2">
+      <span class="w-3 h-3 rounded-full shrink-0" style="background:${SEAT_COLORS[i].bright}"></span>
+      <input data-seat-name="${i}" value="${esc(s.name)}" maxlength="10"
+             class="w-20 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs">
+      <div class="ml-auto flex rounded-lg overflow-hidden border border-slate-700 text-xs">
+        <button data-seat-type="${i}" data-bot="0" class="px-2.5 py-1 ${!s.isBot ? 'bg-emerald-500 text-slate-950 font-bold' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}">🧠 Human</button>
+        <button data-seat-type="${i}" data-bot="1" class="px-2.5 py-1 ${s.isBot ? 'bg-sky-500 text-slate-950 font-bold' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}">🤖 Bot</button>
+      </div>
+    </div>`).join('');
+  $('seatRows').querySelectorAll('[data-seat-type]').forEach((b) => {
+    b.onclick = () => { seatSetup[Number(b.dataset.seatType)].isBot = b.dataset.bot === '1'; renderSeatRows(); };
+  });
+  $('seatRows').querySelectorAll('[data-seat-name]').forEach((inp) => {
+    inp.oninput = () => { seatSetup[Number(inp.dataset.seatName)].name = inp.value || `P${Number(inp.dataset.seatName) + 1}`; };
+  });
+}
+
+/** Read + normalize the whole config from the panel. */
+function readConfig() {
+  const cfg = {};
+  for (const f of CONFIG_FIELDS) cfg[f.id] = clamp(Math.round(Number($(`cfg-${f.id}`).value) || f.def), f.min, f.max);
+  cfg.lengthScoreTable = readScoreTable();
+  // cross-field consistency (clamped silently; the panel shows the raw values)
+  cfg.startingFoodInPlay  = Math.min(cfg.startingFoodInPlay, cfg.totalFoodTokens);
+  cfg.spawnLocationsCount = Math.min(cfg.spawnLocationsCount, cfg.boardSize * cfg.boardSize - cfg.playerCount);
+  cfg.spawnLocationsCount = Math.max(cfg.spawnLocationsCount, cfg.playerCount);
+  cfg.startingLength      = Math.min(cfg.startingLength, cfg.maxSnakeLength);
+  return cfg;
+}
+
+/** Build a full config from defaults + overrides (used by tests/console). */
+function makeConfig(overrides = {}) {
+  const cfg = {};
+  for (const f of CONFIG_FIELDS) cfg[f.id] = f.def;
+  cfg.lengthScoreTable = DEFAULT_SCORE_TABLE.map((r) => ({ ...r }));
+  return Object.assign(cfg, overrides);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   §2 SPAWN-NODE DISTRIBUTION
+   Greedy farthest-point sampling: start at the board center, then repeatedly
+   add the cell that maximizes the minimum distance to all chosen nodes.
+   Deterministic, and about as "evenly distributed as mathematically
+   possible" as a prototype needs.
+   ════════════════════════════════════════════════════════════════════════ */
+function computeSpawnNodes(N, count) {
+  count = Math.min(count, N * N);
+  const nodes = [{ x: Math.floor(N / 2), y: Math.floor(N / 2) }];
+  // minDist[i] = squared distance from cell i to its nearest chosen node
+  const minDist = new Float64Array(N * N).fill(Infinity);
+  const updateFrom = (n) => {
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const d = (x - n.x) ** 2 + (y - n.y) ** 2;
+      const i = y * N + x;
+      if (d < minDist[i]) minDist[i] = d;
+    }
+  };
+  updateFrom(nodes[0]);
+  while (nodes.length < count) {
+    let best = -1, bestD = -1;
+    for (let i = 0; i < N * N; i++) if (minDist[i] > bestD) { bestD = minDist[i]; best = i; }
+    const n = { x: best % N, y: Math.floor(best / N) };
+    nodes.push(n);
+    updateFrom(n);
+  }
+  return nodes;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   §3 GAME ENGINE (pure, headless, DOM-free)
+
+   Tick resolution API (lets the live UI animate every sub-step while the
+   headless runner burns through them synchronously):
+     beginTick(t)  → { maxSteps, acts }   turbo energy is paid here
+     stepTick()    → { events, more }     one simultaneous sub-step
+     finishTick()  → { events }           turbo-crash stats + win check
+     nextRound()   → { events }           food respawn, round++ / respawns
+   ════════════════════════════════════════════════════════════════════════ */
+class Engine {
+  /**
+   * @param cfg   normalized config object (§1)
+   * @param seats [{name, isBot}] — length = playerCount
+   * @param rng   () => float  (seeded for simulations)
+   */
+  constructor(cfg, seats, rng) {
+    this.cfg = cfg;
+    this.rng = rng;
+    this.N = cfg.boardSize;
+    this.round = 0;
+    this.gameOver = false;
+    this.winnerSeat = null;
+    this.endReason = null;          // 'score' | 'roundcap'
+    this._tick = null;              // in-flight tick plan
+
+    // aggregate stats (consumed by the simulation dashboard)
+    this.stats = {
+      deathsByCause: { wall: 0, head: 0, body: 0 },
+      turboExecuted: 0,
+      turboCrashes: 0,
+    };
+
+    // players double as their snakes (score/energy persist through death)
+    this.players = seats.map((s, i) => ({
+      seat: i,
+      name: s.name || `P${i + 1}`,
+      isBot: !!s.isBot,
+      color: SEAT_COLORS[i].bright,
+      chartColor: SEAT_COLORS[i].chart,
+      score: 0,
+      energy: 0,
+      deaths: 0,
+      alive: false,
+      body: [],                     // [{x,y}, ...] head first; may contain stacked duplicates right after spawning
+      facing: 'up',
+      commands: null,               // [{dir, turbo}] per round
+      locked: false,
+    }));
+
+    // fixed spawn nodes, shared by player respawns and food placement
+    this.spawnNodes = computeSpawnNodes(this.N, cfg.spawnLocationsCount);
+
+    // Neutral food tokens: each token is permanently assigned one numbered
+    // spawn node (shuffled round-robin so nodes are used evenly).
+    const nodeOrder = rngShuffle(rng, this.spawnNodes.map((_, i) => i));
+    this.reserve = [];              // tokens currently OFF the board
+    for (let id = 0; id < cfg.totalFoodTokens; id++) {
+      this.reserve.push({ id, nodeIdx: nodeOrder[id % nodeOrder.length] });
+    }
+    rngShuffle(rng, this.reserve);
+
+    this.food = new Map();          // cellKey → {type:'neutral'|'bounty', token?, ownerSeat?}
+  }
+
+  /* ── setup ─────────────────────────────────────────────────────────── */
+
+  /** Deal the opening board: round 1, everyone spawns, then starting food. */
+  setup() {
+    this.round = 1;
+    const events = this.respawnDead();
+    // Place the opening neutral food AFTER snakes so the stomp rule applies.
+    let placed = 0;
+    for (let i = 0; i < this.reserve.length && placed < this.cfg.startingFoodInPlay;) {
+      const tok = this.reserve[i];
+      if (this.tryPlaceToken(tok)) { this.reserve.splice(i, 1); placed++; }
+      else i++;                      // node blocked → token stays in reserve
+    }
+    return events;
+  }
+
+  /* ── small helpers ─────────────────────────────────────────────────── */
+
+  inBounds(x, y) { return x >= 0 && y >= 0 && x < this.N && y < this.N; }
+
+  /** Multiset of occupied cells across all living snakes (stacked spawns count > 1). */
+  occupancy() {
+    const occ = new Map();
+    for (const p of this.players) if (p.alive)
+      for (const c of p.body) {
+        const k = cellKey(c.x, c.y);
+        occ.set(k, (occ.get(k) || 0) + 1);
+      }
+    return occ;
+  }
+
+  /** Points banked for dying at a given length (highest threshold ≤ len). */
+  scoreForLength(len) {
+    let pts = 0;
+    for (const row of this.cfg.lengthScoreTable) if (len >= row.min) pts = row.pts;
+    return pts;
+  }
+
+  /** Try to spawn a reserve token at its pre-assigned node. Stomp rule:
+      fails if the node holds a snake (head/body), a bounty chip, or any food. */
+  tryPlaceToken(tok) {
+    const node = this.spawnNodes[tok.nodeIdx];
+    const k = cellKey(node.x, node.y);
+    if (this.food.has(k) || this.occupancy().has(k)) return false;
+    this.food.set(k, { type: 'neutral', token: tok });
+    return true;
+  }
+
+  /* ── spawning ──────────────────────────────────────────────────────── */
+
+  /** Roll spawn nodes for every dead player. Per the rules only SNAKE BODIES
+      block a node (food often sits on nodes — the spawning snake simply eats
+      it). Dead players are processed in a shuffled order so seat number never
+      decides who gets a node when free ones are scarce; if every node is
+      blocked the player sits the round out. */
+  respawnDead() {
+    const events = [];
+    const cx = (this.N - 1) / 2, cy = (this.N - 1) / 2;
+    const deadPlayers = rngShuffle(this.rng, this.players.filter((p) => !p.alive));
+    for (const p of deadPlayers) {
+      const occ = this.occupancy();                     // fresh — earlier respawns block later ones
+      const order = rngShuffle(this.rng, this.spawnNodes.map((_, i) => i));
+      const idx = order.find((i) => !occ.has(cellKey(this.spawnNodes[i].x, this.spawnNodes[i].y)));
+      if (idx === undefined) { events.push({ t: 'noSpawn', seat: p.seat }); continue; }
+      const node = this.spawnNodes[idx];
+      // coiled spawn: all segments stacked on the node, un-stacking as it moves
+      p.body = Array.from({ length: this.cfg.startingLength }, () => ({ x: node.x, y: node.y }));
+      p.alive = true;
+      // face the board center (dominant axis) so auto-moves head somewhere sane
+      const dx = cx - node.x, dy = cy - node.y;
+      p.facing = Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? 'right' : 'left') : (dy >= 0 ? 'down' : 'up');
+      events.push({ t: 'respawn', seat: p.seat, at: { ...node } });
+      // landing on a food chip eats it immediately (normal eating rules apply)
+      const k = cellKey(node.x, node.y);
+      const f = this.food.get(k);
+      if (f) {
+        this.food.delete(k);
+        if (f.type === 'neutral') {
+          this.reserve.push(f.token);
+          p.energy = Math.min(this.cfg.maxEnergyStorage, p.energy + this.cfg.foodEnergyYield);
+        } else {
+          p.energy = Math.min(this.cfg.maxEnergyStorage, p.energy + this.cfg.bountyEnergyYield);
+        }
+        if (p.body.length < this.cfg.maxSnakeLength) p.body.push({ x: node.x, y: node.y });
+        events.push({ t: 'eat', seat: p.seat, at: { ...node }, foodType: f.type, onSpawn: true });
+      }
+    }
+    return events;
+  }
+
+  /* ── tick resolution ───────────────────────────────────────────────── */
+
+  /**
+   * Start resolving command slot `tickIdx`. Turbo energy is paid here; a
+   * turbo the player can no longer afford downgrades to a normal move.
+   */
+  beginTick(tickIdx) {
+    const acts = [];
+    for (const p of this.players) {
+      if (!p.alive) continue;
+      const cmd = (p.commands && p.commands[tickIdx]) || { dir: p.facing, turbo: false };
+      let steps = 1, turbo = false;
+      if (cmd.turbo && p.energy >= this.cfg.turboEnergyCost) {
+        p.energy -= this.cfg.turboEnergyCost;
+        steps = this.cfg.turboDistance;
+        turbo = true;
+        this.stats.turboExecuted++;
+      }
+      acts.push({ p, dir: cmd.dir, steps, turbo });
+    }
+    this._tick = { idx: tickIdx, acts, step: 0, maxSteps: acts.reduce((m, a) => Math.max(m, a.steps), 0) };
+    return { maxSteps: this._tick.maxSteps, acts };
+  }
+
+  /** Execute ONE simultaneous sub-step. Returns {events, more}. */
+  stepTick() {
+    const T = this._tick;
+    if (!T || T.step >= T.maxSteps) return { events: [], more: false };
+    const movers = T.acts.filter((a) => a.p.alive && a.steps > T.step);
+    const events = movers.length ? this.resolveSubstep(movers) : [];
+    T.step++;
+    return { events, more: T.step < T.maxSteps };
+  }
+
+  /** Close out the tick: turbo-crash bookkeeping + instant-win check. */
+  finishTick() {
+    const T = this._tick; this._tick = null;
+    const events = [];
+    for (const a of T.acts) if (a.turbo && !a.p.alive) this.stats.turboCrashes++;
+    // Instant victory the moment a score crosses the line (mid-round counts).
+    if (this.players.some((p) => p.score >= this.cfg.pointsToWin)) {
+      this.endGame('score');
+      events.push({ t: 'gameover' });
+    }
+    return { events };
+  }
+
+  /**
+   * One simultaneous sub-step for `movers` [{p, dir}] — the heart of the
+   * rules. Order of operations exactly per the design:
+   *   1. tails clear (unless that snake is about to eat)
+   *   2. heads slide (targets computed)
+   *   3. collision checks vs. pre-slide bodies (gap cells stay solid) and
+   *      simultaneous head-to-head
+   *   4. food & tail resolution for survivors
+   */
+  resolveSubstep(movers) {
+    const events = [];
+
+    // (1)+(2) compute targets & who is about to eat
+    for (const m of movers) {
+      const d = DIRS[m.dir];
+      m.tx = m.p.body[0].x + d.dx;
+      m.ty = m.p.body[0].y + d.dy;
+      m.inB = this.inBounds(m.tx, m.ty);
+      m.willEat = m.inB && this.food.has(cellKey(m.tx, m.ty));
+      m.cleared = null;
+      if (!m.willEat) m.cleared = m.p.body.pop();   // tail piece "in hand"
+    }
+
+    // (3a) occupancy AFTER tail clears — old head cells remain solid, which
+    // enforces the "gap space is reserved" ruling (swappers both die).
+    const occ = this.occupancy();
+
+    // (3b) wall & body checks
+    for (const m of movers) {
+      if (!m.inB) m.deathCause = 'wall';
+      else if (occ.has(cellKey(m.tx, m.ty))) m.deathCause = 'body';
+    }
+    // (3c) simultaneous head-to-head: 2+ heads entering the same cell all die
+    const byTarget = new Map();
+    for (const m of movers) {
+      if (!m.inB) continue;
+      const k = cellKey(m.tx, m.ty);
+      (byTarget.get(k) || byTarget.set(k, []).get(k)).push(m);
+    }
+    for (const group of byTarget.values()) {
+      if (group.length >= 2) for (const m of group) m.deathCause ??= 'head';
+    }
+
+    // (4a) deaths: bank points, flip body chips to bounty, leave the board
+    for (const m of movers) {
+      if (!m.deathCause) continue;
+      this.killSnake(m.p, m.deathCause, m.cleared, events, { x: m.tx, y: m.ty });
+    }
+
+    // (4b) survivors: slide the head, then eat or re-place the tail piece
+    for (const m of movers) {
+      if (m.deathCause) continue;
+      const p = m.p;
+      p.body.unshift({ x: m.tx, y: m.ty });
+      p.facing = m.dir;
+      if (m.willEat) {
+        const k = cellKey(m.tx, m.ty);
+        const f = this.food.get(k);
+        this.food.delete(k);
+        if (f.type === 'neutral') {
+          this.reserve.push(f.token);                       // eaten tokens rejoin the reserve pool
+          p.energy = Math.min(this.cfg.maxEnergyStorage, p.energy + this.cfg.foodEnergyYield);
+        } else {
+          p.energy = Math.min(this.cfg.maxEnergyStorage, p.energy + this.cfg.bountyEnergyYield);
+        }
+        // +1 length via a brand-new tail piece — unless the supply cap is hit,
+        // in which case the snake still gets the energy but not the segment.
+        if (p.body.length > this.cfg.maxSnakeLength) p.body.pop();
+        events.push({ t: 'eat', seat: p.seat, at: { x: m.tx, y: m.ty }, foodType: f.type });
+      }
+      // non-eaters: the cleared tail piece fills the gap behind the head —
+      // in cell terms the swap (+newHead, −oldTail) is already complete.
+    }
+    return events;
+  }
+
+  /** Death: bank length points, flip on-board body chips into bounty food. */
+  killSnake(p, cause, clearedTail, events, crashAt) {
+    const lenAtDeath = p.body.length + (clearedTail ? 1 : 0);
+    const pts = this.scoreForLength(lenAtDeath);
+    p.score += pts;
+    p.deaths++;
+    this.stats.deathsByCause[cause]++;
+    // body/tail chips (NOT the head token) flip to player-colored bounty
+    const chips = [];
+    const seen = new Set();
+    for (const c of p.body.slice(1)) {
+      const k = cellKey(c.x, c.y);
+      if (seen.has(k) || this.food.has(k)) continue;   // dedupe stacked spawn cells
+      seen.add(k);
+      this.food.set(k, { type: 'bounty', ownerSeat: p.seat });
+      chips.push({ ...c });
+    }
+    p.alive = false;
+    p.body = [];
+    events.push({ t: 'death', seat: p.seat, cause, len: lenAtDeath, pts, chips, at: crashAt });
+  }
+
+  /** Force game end and crown the top scorer (ties broken randomly). */
+  endGame(reason) {
+    this.gameOver = true;
+    this.endReason = reason;
+    const top = Math.max(...this.players.map((p) => p.score));
+    this.winnerSeat = rngPick(this.rng, this.players.filter((p) => p.score === top)).seat;
+  }
+
+  /* ── end of round ──────────────────────────────────────────────────── */
+
+  /**
+   * After the final command slot resolves:
+   *   1. roll ceil(reserve/2) random tokens at their pre-assigned nodes
+   *      (stomp rule: blocked tokens bounce back to the reserve)
+   *   2. enforce the maxRounds guard
+   *   3. advance the round and respawn the dead
+   */
+  nextRound() {
+    const events = [];
+    const half = Math.ceil(this.reserve.length / 2);
+    rngShuffle(this.rng, this.reserve);
+    const spawned = [];
+    // iterate a snapshot: tryPlaceToken mutates food, we mutate reserve
+    for (const tok of this.reserve.slice(0, half)) {
+      if (this.tryPlaceToken(tok)) {
+        this.reserve.splice(this.reserve.indexOf(tok), 1);
+        const n = this.spawnNodes[tok.nodeIdx];
+        spawned.push({ x: n.x, y: n.y });
+      }
+    }
+    if (spawned.length) events.push({ t: 'foodSpawn', cells: spawned });
+
+    if (this.round >= this.cfg.maxRounds) {
+      this.endGame('roundcap');
+      events.push({ t: 'gameover' });
+      return { events };
+    }
+    this.round++;
+    events.push(...this.respawnDead());
+    return { events };
+  }
+
+  /* ── quick board metrics (simulation food density) ─────────────────── */
+  foodCounts() {
+    let neutral = 0, bounty = 0;
+    for (const f of this.food.values()) f.type === 'neutral' ? neutral++ : bounty++;
+    return { neutral, bounty };
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   §4 BOT AI — lightweight, non-cheating heuristic
+   Per command slot (projecting only its OWN future body; rivals are frozen
+   at their current cells, since their programs are secret):
+     1. SELF-PRESERVATION: discard moves that hit a wall or any snake cell
+        on the upcoming tick (own tail cell is exempt — it clears).
+     2. FOOD SEEKING: among safe moves pick the one that minimizes Manhattan
+        distance to the nearest remaining food chip (neutral or bounty).
+     3. TURBO: with enough energy and a snake-free straight line for the full
+        turboDistance, a flat 25% chance to flag the slot as turbo.
+   ════════════════════════════════════════════════════════════════════════ */
+const Bot = {
+  plan(engine, p) {
+    const { cfg, rng, N } = engine;
+    const cmds = [];
+
+    // frozen snapshot of every OTHER living snake
+    const others = new Set();
+    for (const q of engine.players) if (q.alive && q !== p)
+      for (const c of q.body) others.add(cellKey(c.x, c.y));
+
+    // own projected body as a cell-count map (handles stacked spawn cells)
+    const own = p.body.map((c) => ({ ...c }));
+    const ownCount = new Map();
+    const bump = (k, d) => {
+      const v = (ownCount.get(k) || 0) + d;
+      v > 0 ? ownCount.set(k, v) : ownCount.delete(k);
+    };
+    for (const c of own) bump(cellKey(c.x, c.y), +1);
+
+    // food cells this plan hasn't already "eaten"
+    const foods = [];
+    for (const [k, f] of engine.food) foods.push({ x: k & 63, y: k >> 6, k });
+    const eaten = new Set();
+
+    let energy = p.energy;
+
+    const blocked = (x, y, tailK) => {
+      if (x < 0 || y < 0 || x >= N || y >= N) return true;
+      const k = cellKey(x, y);
+      if (others.has(k)) return true;
+      // own cells block too — except the tail cell about to clear (one instance)
+      const cnt = (ownCount.get(k) || 0) - (k === tailK ? 1 : 0);
+      return cnt > 0;
+    };
+
+    for (let slot = 0; slot < cfg.commandSlots; slot++) {
+      const head = own[0];
+      const tail = own[own.length - 1];
+      const tailK = cellKey(tail.x, tail.y);
+
+      // 1) self-preservation
+      const safe = DIR_LIST.filter((d) => {
+        const t = { x: head.x + DIRS[d].dx, y: head.y + DIRS[d].dy };
+        // if the target holds food, our tail will NOT clear — but a food cell
+        // is never simultaneously a body cell, so the plain check still holds
+        return !blocked(t.x, t.y, tailK);
+      });
+
+      let dir, turbo = false;
+      if (!safe.length) {
+        dir = rngPick(rng, DIR_LIST);          // cornered — pick a hero's exit
+      } else {
+        // 2) food seeking (Manhattan distance from the RESULTING cell)
+        const live = foods.filter((f) => !eaten.has(f.k));
+        if (live.length) {
+          let bestD = Infinity, best = [];
+          for (const d of safe) {
+            const tx = head.x + DIRS[d].dx, ty = head.y + DIRS[d].dy;
+            let dd = Infinity;
+            for (const f of live) dd = Math.min(dd, Math.abs(f.x - tx) + Math.abs(f.y - ty));
+            if (dd < bestD - 1e-9) { bestD = dd; best = [d]; }
+            else if (dd === bestD) best.push(d);
+          }
+          dir = rngPick(rng, best);
+        } else {
+          dir = rngPick(rng, safe);
+        }
+        // 3) turbo trigger: affordable + clear line of sight + 25% roll
+        if (energy >= cfg.turboEnergyCost && rng() < 0.25) {
+          let clear = true;
+          for (let s = 1; s <= cfg.turboDistance; s++) {
+            const tx = head.x + DIRS[dir].dx * s, ty = head.y + DIRS[dir].dy * s;
+            if (tx < 0 || ty < 0 || tx >= N || ty >= N) { clear = false; break; }
+            const k = cellKey(tx, ty);
+            if (others.has(k) || ownCount.get(k)) { clear = false; break; }   // conservative: ignores own tail clearing
+          }
+          if (clear) { turbo = true; energy -= cfg.turboEnergyCost; }
+        }
+      }
+
+      // simulate our own slide so the next slot plans from the right shape
+      const steps = turbo ? cfg.turboDistance : 1;
+      for (let s = 0; s < steps; s++) {
+        const nx = own[0].x + DIRS[dir].dx, ny = own[0].y + DIRS[dir].dy;
+        if (nx < 0 || ny < 0 || nx >= N || ny >= N) break;   // planner walked off — engine will handle the death
+        const k = cellKey(nx, ny);
+        own.unshift({ x: nx, y: ny }); bump(k, +1);
+        const foodHere = foods.find((f) => f.k === k && !eaten.has(f.k));
+        if (foodHere) {
+          eaten.add(k);
+          energy = Math.min(cfg.maxEnergyStorage, energy + cfg.foodEnergyYield);
+          if (own.length > cfg.maxSnakeLength) { const t = own.pop(); bump(cellKey(t.x, t.y), -1); }
+        } else {
+          const t = own.pop(); bump(cellKey(t.x, t.y), -1);
+        }
+      }
+      cmds.push({ dir, turbo });
+    }
+    return cmds;
+  },
+};
+
+/* ════════════════════════════════════════════════════════════════════════
+   §5 HEADLESS RUNNER + BATCH AGGREGATION (Simulation Mode engine room)
+   ════════════════════════════════════════════════════════════════════════ */
+
+/** Play one full bots-only game synchronously. Returns per-game stats. */
+function runHeadlessGame(cfg, seed) {
+  const rng = mulberry32(seed);
+  const seats = Array.from({ length: cfg.playerCount }, (_, i) => ({ name: `P${i + 1}`, isBot: true }));
+  const e = new Engine(cfg, seats, rng);
+  e.setup();
+
+  while (!e.gameOver) {
+    // programming phase: every living bot writes its strip
+    for (const p of e.players) p.commands = p.alive ? Bot.plan(e, p) : null;
+    // resolution phase: slot by slot, sub-step by sub-step
+    for (let t = 0; t < cfg.commandSlots && !e.gameOver; t++) {
+      e.beginTick(t);
+      while (e.stepTick().more) { /* burn through sub-steps */ }
+      e.finishTick();
+    }
+    if (!e.gameOver) e.nextRound();
+  }
+
+  const food = e.foodCounts();
+  return {
+    rounds: e.round,
+    endReason: e.endReason,
+    winnerSeat: e.winnerSeat,
+    scores: e.players.map((p) => p.score),
+    deaths: e.players.map((p) => p.deaths),
+    causes: { ...e.stats.deathsByCause },
+    turboExecuted: e.stats.turboExecuted,
+    turboCrashes: e.stats.turboCrashes,
+    foodNeutralEnd: food.neutral,
+    foodBountyEnd: food.bounty,
+  };
+}
+
+/** Run `runs` games in chunks (keeps the UI thread breathing) and aggregate. */
+async function runBatch(cfg, runs, onProgress) {
+  const t0 = performance.now();
+  const agg = {
+    runs, cfg,
+    totalRounds: 0, byScore: 0, byCap: 0,
+    scoreHigh: -Infinity, scoreLow: Infinity, scoreSum: 0, scoreCount: 0,
+    deathsTotal: 0,
+    causes: { wall: 0, head: 0, body: 0 },
+    turboExecuted: 0, turboCrashes: 0,
+    foodNeutralSum: 0, foodBountySum: 0,
+    winsBySeat: Array(cfg.playerCount).fill(0),
+  };
+  const baseSeed = (Math.random() * 0xffffffff) >>> 0;
+  const CHUNK = 10;
+  for (let i = 0; i < runs; i++) {
+    const g = runHeadlessGame(cfg, (baseSeed + i * 0x9e3779b9) >>> 0);
+    agg.totalRounds += g.rounds;
+    g.endReason === 'score' ? agg.byScore++ : agg.byCap++;
+    for (const s of g.scores) {
+      agg.scoreHigh = Math.max(agg.scoreHigh, s);
+      agg.scoreLow = Math.min(agg.scoreLow, s);
+      agg.scoreSum += s; agg.scoreCount++;
+    }
+    agg.deathsTotal += g.deaths.reduce((a, b) => a + b, 0);
+    for (const c of ['wall', 'head', 'body']) agg.causes[c] += g.causes[c];
+    agg.turboExecuted += g.turboExecuted;
+    agg.turboCrashes += g.turboCrashes;
+    agg.foodNeutralSum += g.foodNeutralEnd;
+    agg.foodBountySum += g.foodBountyEnd;
+    agg.winsBySeat[g.winnerSeat]++;
+    if (i % CHUNK === CHUNK - 1) { onProgress?.((i + 1) / runs); await sleep(0); }
+  }
+  agg.ms = performance.now() - t0;
+  onProgress?.(1);
+  return agg;
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   §6 CANVAS RENDERER
+   Full-state redraw each frame: grid → spawn nodes → food/bounty → snakes
+   → transient effects (death rings, turbo trails).
+   ════════════════════════════════════════════════════════════════════════ */
+const Renderer = {
+  canvas: null, ctx: null, cell: 0, N: 12,
+  effects: [],       // {kind:'boom'|'trail', ..., born, life}
+
+  init() {
+    this.canvas = $('board');
+    this.ctx = this.canvas.getContext('2d');
+    new ResizeObserver(() => this.fit()).observe($('boardWrap'));
+    this.fit();
+  },
+
+  /** Size the square canvas to the container at device-pixel sharpness. */
+  fit() {
+    const wrap = $('boardWrap');
+    const size = Math.max(180, Math.min(wrap.clientWidth, wrap.clientHeight) - 24);
+    const dpr = window.devicePixelRatio || 1;
+    this.canvas.style.width = this.canvas.style.height = `${size}px`;
+    this.canvas.width = this.canvas.height = Math.round(size * dpr);
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.cssSize = size;
+    this.draw(LIVE.engine);
+  },
+
+  addEffect(fx) { this.effects.push({ ...fx, born: performance.now() }); },
+
+  px(c) { return c * this.cell; },
+  center(c) { return c * this.cell + this.cell / 2; },
+
+  draw(engine) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const size = this.cssSize;
+    ctx.clearRect(0, 0, size, size);
+    // empty-slate background even with no game yet
+    this.N = engine ? engine.N : 12;
+    this.cell = size / this.N;
+    const s = this.cell;
+
+    // board background + subtle checker
+    ctx.fillStyle = '#0b1220';
+    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = 'rgba(255,255,255,0.018)';
+    for (let y = 0; y < this.N; y++) for (let x = 0; x < this.N; x++)
+      if ((x + y) % 2) ctx.fillRect(this.px(x), this.px(y), s, s);
+
+    // hairline grid
+    ctx.strokeStyle = 'rgba(148,163,184,0.08)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 1; i < this.N; i++) {
+      ctx.moveTo(this.px(i) + .5, 0); ctx.lineTo(this.px(i) + .5, size);
+      ctx.moveTo(0, this.px(i) + .5); ctx.lineTo(size, this.px(i) + .5);
+    }
+    ctx.stroke();
+    if (!engine) return;
+
+    // spawn nodes: faint rings (+ index when the board is roomy)
+    ctx.strokeStyle = 'rgba(148,163,184,0.28)';
+    ctx.fillStyle = 'rgba(148,163,184,0.5)';
+    ctx.lineWidth = 1;
+    engine.spawnNodes.forEach((n, i) => {
+      ctx.beginPath();
+      ctx.arc(this.center(n.x), this.center(n.y), s * 0.15, 0, Math.PI * 2);
+      ctx.stroke();
+      if (s >= 30) {
+        ctx.font = `${Math.max(7, s * 0.2)}px system-ui`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.globalAlpha = 0.45;
+        ctx.fillText(String(i + 1), this.center(n.x), this.center(n.y));
+        ctx.globalAlpha = 1;
+      }
+    });
+
+    // food tokens
+    for (const [k, f] of engine.food) {
+      const x = this.center(k & 63), y = this.center(k >> 6);
+      if (f.type === 'neutral') {
+        // neutral: golden pellet with a bright core
+        ctx.save();
+        ctx.shadowColor = '#f59e0b'; ctx.shadowBlur = s * 0.3;
+        ctx.fillStyle = '#f59e0b';
+        ctx.beginPath(); ctx.arc(x, y, s * 0.21, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#fde68a';
+        ctx.beginPath(); ctx.arc(x - s * 0.05, y - s * 0.05, s * 0.08, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      } else {
+        // bounty: player-colored diamond with a white ring (worth double)
+        const col = SEAT_COLORS[f.ownerSeat].bright;
+        ctx.save();
+        ctx.translate(x, y); ctx.rotate(Math.PI / 4);
+        ctx.shadowColor = col; ctx.shadowBlur = s * 0.35;
+        const r = s * 0.20;
+        ctx.fillStyle = col;
+        ctx.fillRect(-r, -r, r * 2, r * 2);
+        ctx.shadowBlur = 0;
+        ctx.lineWidth = Math.max(1.5, s * 0.05);
+        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+        ctx.strokeRect(-r, -r, r * 2, r * 2);
+        ctx.restore();
+      }
+    }
+
+    // snakes: tapered body stroke + directional head with eyes
+    for (const p of engine.players) {
+      if (!p.alive || !p.body.length) continue;
+      const pts = p.body.map((c) => ({ x: this.center(c.x), y: this.center(c.y) }));
+      // body: per-segment strokes, width tapering toward the tail
+      for (let i = pts.length - 1; i >= 1; i--) {
+        const t = pts.length === 1 ? 0 : i / (pts.length - 1);        // 1 at tail
+        ctx.strokeStyle = p.color;
+        ctx.globalAlpha = 0.85;
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.lineWidth = s * (0.62 - 0.3 * t);
+        ctx.beginPath();
+        ctx.moveTo(pts[i].x, pts[i].y);
+        ctx.lineTo(pts[i - 1].x, pts[i - 1].y);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      // head token
+      const h = pts[0];
+      const d = DIRS[p.facing];
+      ctx.save();
+      ctx.shadowColor = p.color; ctx.shadowBlur = s * 0.35;
+      ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(h.x, h.y, s * 0.37, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+      // directional eyes: perpendicular offsets, nudged toward the facing
+      const px_ = -d.dy, py_ = d.dx;                                   // perpendicular
+      const fx = d.dx * s * 0.13, fy = d.dy * s * 0.13;
+      for (const side of [-1, 1]) {
+        const ex = h.x + fx + px_ * side * s * 0.14;
+        const ey = h.y + fy + py_ * side * s * 0.14;
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(ex, ey, s * 0.085, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#0f172a';
+        ctx.beginPath(); ctx.arc(ex + d.dx * s * 0.03, ey + d.dy * s * 0.03, s * 0.045, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.restore();
+      // stacked-spawn badge: show how many segments are still coiled
+      const counts = new Map();
+      for (const c of p.body) { const k = cellKey(c.x, c.y); counts.set(k, (counts.get(k) || 0) + 1); }
+      for (const [k, n] of counts) if (n > 1) {
+        const bx = this.center(k & 63), by = this.center(k >> 6);
+        ctx.fillStyle = 'rgba(15,23,42,0.85)';
+        ctx.beginPath(); ctx.arc(bx + s * 0.24, by - s * 0.24, s * 0.15, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = `bold ${Math.max(8, s * 0.22)}px system-ui`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(String(n), bx + s * 0.24, by - s * 0.24 + 0.5);
+      }
+    }
+
+    // transient effects
+    const now = performance.now();
+    this.effects = this.effects.filter((fx) => now - fx.born < fx.life);
+    for (const fx of this.effects) {
+      const t = (now - fx.born) / fx.life;                              // 0→1
+      if (fx.kind === 'boom') {
+        ctx.strokeStyle = fx.color;
+        ctx.globalAlpha = 1 - t;
+        ctx.lineWidth = Math.max(1.5, s * 0.08 * (1 - t));
+        ctx.beginPath();
+        ctx.arc(this.center(fx.x), this.center(fx.y), s * (0.2 + t * 0.65), 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      } else if (fx.kind === 'trail') {
+        ctx.strokeStyle = fx.color;
+        ctx.globalAlpha = 0.35 * (1 - t);
+        ctx.lineCap = 'round';
+        ctx.lineWidth = s * 0.3;
+        ctx.beginPath();
+        ctx.moveTo(this.center(fx.x1), this.center(fx.y1));
+        ctx.lineTo(this.center(fx.x2), this.center(fx.y2));
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
+    if (this.effects.length) requestAnimationFrame(() => this.draw(LIVE.engine));
+  },
+};
+
+/* ════════════════════════════════════════════════════════════════════════
+   §7 LIVE GAME CONTROLLER
+   Phases: idle → programming (strip + panic timer) → resolving (animated
+   tick playback) → …repeat… → gameover.
+   ════════════════════════════════════════════════════════════════════════ */
+const LIVE = {
+  engine: null,
+  phase: 'idle',            // idle | programming | resolving | gameover
+  session: 0,               // guards stale async loops after New Game
+  humanQueue: [],           // seats still to program this round
+  currentHuman: null,       // seat currently editing the strip
+  draft: null,              // [{dir|null, turbo}] for the current human
+  draftSel: 0,              // selected slot index
+  botTimers: [],
+  panic: null,              // {deadline, raf}
+  multiHuman: false,
+  speed: 1,
+
+  /* ── lifecycle ─────────────────────────────────────────────────────── */
+
+  newGame() {
+    this.session++;
+    this.clearTimers();
+    hideOverlays();
+    const cfg = readConfig();
+    const seats = seatSetup.slice(0, cfg.playerCount);
+    this.engine = new Engine(cfg, seats, mulberry32((Math.random() * 0xffffffff) >>> 0));
+    const events = this.engine.setup();
+    clearLog();
+    log(`— New game · ${cfg.boardSize}×${cfg.boardSize} · ${cfg.playerCount} players · first to ${cfg.pointsToWin} pts —`);
+    consumeEvents(events);
+    this.multiHuman = seats.filter((s) => !s.isBot).length > 1;
+    Renderer.effects = [];
+    Renderer.draw(this.engine);
+    this.startProgramming();
+  },
+
+  clearTimers() {
+    this.botTimers.forEach(clearTimeout);
+    this.botTimers = [];
+    stopPanic();
+  },
+
+  /* ── programming phase ─────────────────────────────────────────────── */
+
+  startProgramming() {
+    const e = this.engine;
+    this.phase = 'programming';
+    for (const p of e.players) { p.locked = false; p.commands = null; }
+    $('roundChip').textContent = `Round ${e.round}`;
+    setPhaseText(`Programming — ${e.cfg.commandSlots} moves. First lock-in starts the ${e.cfg.panicSeconds}s panic timer!`);
+
+    // Bots think now, lock on a short human-ish delay (starts the panic clock).
+    const mySession = this.session;
+    for (const p of e.players) {
+      if (!p.alive || !p.isBot) continue;
+      const plan = Bot.plan(e, p);
+      const delay = 600 + Math.random() * 1400;
+      this.botTimers.push(setTimeout(() => {
+        if (this.session !== mySession || this.phase !== 'programming' || p.locked) return;
+        this.lockPlayer(p, plan);
+      }, delay));
+    }
+
+    // Humans queue up (hot-seat privacy: one strip at a time).
+    this.humanQueue = e.players.filter((p) => p.alive && !p.isBot).map((p) => p.seat);
+    this.currentHuman = null;
+    this.nextHuman();
+    renderScoreboard();
+  },
+
+  nextHuman() {
+    hideEl('passOverlay');
+    if (!this.humanQueue.length) {
+      this.currentHuman = null;
+      renderWaitingStrip();
+      this.checkAllLocked();
+      return;
+    }
+    const seat = this.humanQueue.shift();
+    this.currentHuman = seat;
+    const p = this.engine.players[seat];
+    this.draft = Array.from({ length: this.engine.cfg.commandSlots }, () => ({ dir: null, turbo: false }));
+    this.draftSel = 0;
+    if (this.multiHuman) {
+      // interstitial so the previous human's strip stays secret
+      $('passText').innerHTML = `<span style="color:${p.color}">●</span> ${esc(p.name)} — you're up`;
+      showEl('passOverlay');
+      renderWaitingStrip();
+    } else {
+      renderHumanStrip();
+    }
+  },
+
+  /** A player commits their strip. First lock triggers the panic timer. */
+  lockPlayer(p, commands) {
+    if (p.locked || this.phase !== 'programming') return;
+    p.commands = commands;
+    p.locked = true;
+    log(`🔒 ${p.name} locked in`, p.color);
+    renderScoreboard();
+    const unlocked = this.engine.players.filter((q) => q.alive && !q.locked);
+    if (unlocked.length && !this.panic) startPanic(this.engine.cfg.panicSeconds);
+    this.checkAllLocked();
+  },
+
+  /** Human hit LOCK (or panic auto-filled): commit the current draft. */
+  lockCurrentHuman(auto = false) {
+    if (this.currentHuman === null) return;
+    const p = this.engine.players[this.currentHuman];
+    const cmds = this.draft.map((d) => ({
+      dir: d.dir || lastDirOrFacing(this.draft, p),   // panic fill: repeat last chosen direction, else facing
+      turbo: d.turbo,
+    }));
+    if (auto) log(`⏱ ${p.name} auto-locked by the panic timer`, p.color);
+    this.currentHuman = null;
+    this.lockPlayer(p, cmds);
+    if (this.phase === 'programming') this.nextHuman();
+  },
+
+  /** Panic hit zero: everyone still open locks whatever they have. */
+  panicExpired() {
+    if (this.phase !== 'programming') return;
+    log('🚨 PANIC! All remaining strips auto-locked.');
+    this.lockCurrentHuman(true);                       // current editor keeps their partial strip
+    for (const p of this.engine.players) {             // queued humans + straggler bots: straight lines
+      if (!p.alive || p.locked) continue;
+      const cmds = p.isBot
+        ? Bot.plan(this.engine, p)
+        : Array.from({ length: this.engine.cfg.commandSlots }, () => ({ dir: p.facing, turbo: false }));
+      if (!p.isBot) log(`⏱ ${p.name} auto-locked by the panic timer`, p.color);
+      this.lockPlayer(p, cmds);
+    }
+    this.humanQueue = [];
+    hideEl('passOverlay');
+  },
+
+  checkAllLocked() {
+    const open = this.engine.players.filter((p) => p.alive && !p.locked);
+    if (!open.length && this.phase === 'programming') {
+      stopPanic();
+      this.resolveRound();
+    }
+  },
+
+  /* ── resolution phase (animated playback) ──────────────────────────── */
+
+  async resolveRound() {
+    const e = this.engine;
+    const mySession = this.session;
+    this.phase = 'resolving';
+    this.clearTimers();
+    const subDelay = () => 150 / this.speed;
+    const tickPause = () => 330 / this.speed;
+
+    for (let t = 0; t < e.cfg.commandSlots; t++) {
+      if (this.session !== mySession || e.gameOver) return this.session === mySession ? this.showGameOver() : undefined;
+      setPhaseText(`Resolving move ${t + 1} of ${e.cfg.commandSlots}…`);
+      renderRevealStrip(t);
+      const { acts } = e.beginTick(t);
+      // turbo trails render from each turbo snake's tick-start head
+      const trailStarts = acts.filter((a) => a.turbo).map((a) => ({ p: a.p, x: a.p.body[0].x, y: a.p.body[0].y }));
+      let r;
+      do {
+        r = e.stepTick();
+        consumeEvents(r.events);
+        Renderer.draw(e);
+        renderScoreboard();
+        await sleep(subDelay());
+        if (this.session !== mySession) return;
+      } while (r.more);
+      for (const tr of trailStarts) if (tr.p.alive)
+        Renderer.addEffect({ kind: 'trail', x1: tr.x, y1: tr.y, x2: tr.p.body[0].x, y2: tr.p.body[0].y, color: tr.p.color, life: 500 });
+      consumeEvents(e.finishTick().events);
+      Renderer.draw(e);
+      await sleep(tickPause());
+      if (this.session !== mySession) return;
+    }
+
+    if (!e.gameOver) {
+      consumeEvents(e.nextRound().events);
+      Renderer.draw(e);
+      renderScoreboard();
+      await sleep(400 / this.speed);
+      if (this.session !== mySession) return;
+    }
+    e.gameOver ? this.showGameOver() : this.startProgramming();
+  },
+
+  /* ── game over ─────────────────────────────────────────────────────── */
+
+  showGameOver() {
+    const e = this.engine;
+    this.phase = 'gameover';
+    const w = e.players[e.winnerSeat];
+    setPhaseText('Game over.');
+    $('winnerText').innerHTML = `<span style="color:${w.color}">${esc(w.name)}</span> wins with ${w.score} pts!`;
+    $('winnerSub').textContent = e.endReason === 'score'
+      ? `Reached ${e.cfg.pointsToWin} points in round ${e.round}`
+      : `Round cap (${e.cfg.maxRounds}) reached — highest score wins`;
+    $('finalStandings').innerHTML = [...e.players]
+      .sort((a, b) => (b.score - a.score) || ((b.seat === e.winnerSeat) - (a.seat === e.winnerSeat)))  // winner first on ties
+      .map((p, i) => `
+      <div class="flex items-center gap-2 text-sm bg-slate-800/60 rounded-lg px-3 py-1.5">
+        <span class="text-slate-500 text-xs w-4">${i + 1}.</span>
+        <span class="w-2.5 h-2.5 rounded-full" style="background:${p.color}"></span>
+        <span class="font-semibold">${esc(p.name)}</span>
+        <span class="text-slate-500 text-xs">${p.isBot ? '🤖' : '🧠'} · ${p.deaths} deaths</span>
+        <span class="ml-auto font-bold tabular-nums">${p.score} pts</span>
+      </div>`).join('');
+    showEl('gameOverOverlay');
+    renderScoreboard();
+    log(`🏆 ${w.name} wins the match!`, w.color);
+  },
+};
+
+/* helper: last direction chosen in a draft, else the snake's facing */
+function lastDirOrFacing(draft, p) {
+  for (let i = draft.length - 1; i >= 0; i--) if (draft[i].dir) return draft[i].dir;
+  return p.facing;
+}
+
+/* ── panic timer ──────────────────────────────────────────────────────── */
+function startPanic(seconds) {
+  stopPanic();
+  const deadline = performance.now() + seconds * 1000;
+  LIVE.panic = { deadline, raf: 0 };
+  showEl('panicWrap');
+  const tick = () => {
+    if (!LIVE.panic) return;
+    const left = Math.max(0, LIVE.panic.deadline - performance.now());
+    const frac = left / (seconds * 1000);
+    $('panicBar').style.width = `${frac * 100}%`;
+    $('panicBar').style.background = frac > 0.5 ? '#34d399' : frac > 0.25 ? '#fbbf24' : '#f87171';
+    $('panicLabel').textContent = `⏱ ${(left / 1000).toFixed(1)}s`;
+    $('panicLabel').classList.toggle('panic-critical', frac <= 0.25);
+    if (left <= 0) { stopPanic(); LIVE.panicExpired(); return; }
+    LIVE.panic.raf = requestAnimationFrame(tick);
+  };
+  tick();
+}
+function stopPanic() {
+  if (LIVE.panic) cancelAnimationFrame(LIVE.panic.raf);
+  LIVE.panic = null;
+  hideEl('panicWrap');
+  $('panicLabel').classList.remove('panic-critical');
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   §8 COMMAND STRIP UI (+ scoreboard + event log)
+   ════════════════════════════════════════════════════════════════════════ */
+
+/** Interactive strip for the human currently programming. */
+function renderHumanStrip() {
+  const e = LIVE.engine;
+  const p = e.players[LIVE.currentHuman];
+  const turboCount = LIVE.draft.filter((d) => d.turbo).length;
+  const overBudget = turboCount * e.cfg.turboEnergyCost > p.energy;
+  $('stripArea').innerHTML = `
+    <div class="max-w-3xl mx-auto fade-in">
+      <div class="flex items-center gap-2 mb-2 text-sm">
+        <span class="w-3 h-3 rounded-full" style="background:${p.color}"></span>
+        <b>${esc(p.name)}</b>
+        <span class="text-slate-400 text-xs">program your ${e.cfg.commandSlots} moves</span>
+        <span class="ml-auto text-xs ${overBudget ? 'text-rose-400 font-bold' : 'text-slate-400'}">
+          ⚡ energy ${p.energy}/${e.cfg.maxEnergyStorage} · turbo cost ${e.cfg.turboEnergyCost}
+          ${overBudget ? ' — over budget: extra turbos will downgrade!' : ''}
+        </span>
+      </div>
+      <div class="flex items-start gap-2 flex-wrap">
+        <div class="flex gap-1.5" id="slotRow">
+          ${LIVE.draft.map((d, i) => `
+            <div class="flex flex-col items-center gap-1">
+              <button data-slot="${i}"
+                class="w-12 h-12 rounded-lg border-2 text-2xl font-black transition-colors
+                       ${i === LIVE.draftSel ? 'border-emerald-400 bg-slate-700' : 'border-slate-700 bg-slate-800 hover:bg-slate-700'}
+                       ${d.dir ? 'text-white' : 'text-slate-600'}">${d.dir ? DIRS[d.dir].glyph : '·'}</button>
+              <button data-turbo="${i}" title="Turbo: slide ${e.cfg.turboDistance} cells this move (${e.cfg.turboEnergyCost}⚡)"
+                class="text-[10px] px-1.5 py-0.5 rounded font-bold border
+                       ${d.turbo ? 'bg-amber-400 text-slate-950 border-amber-300' : 'bg-slate-800 text-slate-500 border-slate-700 hover:text-amber-300'}">⚡${d.turbo ? ' ON' : ''}</button>
+            </div>`).join('')}
+        </div>
+        <div class="flex flex-col gap-1.5 ml-2">
+          <div class="grid grid-cols-3 gap-1 w-fit">
+            <span></span><button data-dir="up"    class="dirbtn">↑</button><span></span>
+            <button data-dir="left"  class="dirbtn">←</button>
+            <button data-dir="down"  class="dirbtn">↓</button>
+            <button data-dir="right" class="dirbtn">→</button>
+          </div>
+          <p class="text-[10px] text-slate-500">arrows/WASD · T = turbo · ⌫ undo</p>
+        </div>
+        <div class="flex flex-col gap-1.5 ml-auto">
+          <button id="btnLock" ${LIVE.draft.every((d) => d.dir) ? '' : 'disabled'}
+            class="px-5 py-2.5 rounded-lg font-bold text-sm ${LIVE.draft.every((d) => d.dir)
+              ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
+              : 'bg-slate-800 text-slate-600 cursor-not-allowed'}">🔒 LOCK IN</button>
+          <button id="btnClearStrip" class="px-3 py-1 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 text-slate-400">clear</button>
+        </div>
+      </div>
+    </div>`;
+  // style the dir pad via a shared class (Tailwind can't target dynamic HTML in <style> easily)
+  $('stripArea').querySelectorAll('.dirbtn').forEach((b) => {
+    b.className += ' w-9 h-9 bg-slate-800 hover:bg-slate-600 border border-slate-700 rounded-md text-lg font-bold';
+    b.onclick = () => setDraftDir(b.dataset.dir);
+  });
+  $('stripArea').querySelectorAll('[data-slot]').forEach((b) => {
+    b.onclick = () => { LIVE.draftSel = Number(b.dataset.slot); renderHumanStrip(); };
+  });
+  $('stripArea').querySelectorAll('[data-turbo]').forEach((b) => {
+    b.onclick = () => {
+      const i = Number(b.dataset.turbo);
+      LIVE.draft[i].turbo = !LIVE.draft[i].turbo;
+      renderHumanStrip();
+    };
+  });
+  $('btnLock').onclick = () => LIVE.draft.every((d) => d.dir) && LIVE.lockCurrentHuman();
+  $('btnClearStrip').onclick = () => {
+    LIVE.draft.forEach((d) => { d.dir = null; d.turbo = false; });
+    LIVE.draftSel = 0;
+    renderHumanStrip();
+  };
+}
+
+/** Set direction on the selected slot and auto-advance the cursor. */
+function setDraftDir(dir) {
+  if (LIVE.phase !== 'programming' || LIVE.currentHuman === null) return;
+  LIVE.draft[LIVE.draftSel].dir = dir;
+  if (LIVE.draftSel < LIVE.draft.length - 1) LIVE.draftSel++;
+  renderHumanStrip();
+}
+
+/** Strip area while bots think / other humans wait (lock-state chips). */
+function renderWaitingStrip() {
+  const e = LIVE.engine;
+  $('stripArea').innerHTML = `
+    <div class="max-w-3xl mx-auto text-center space-y-2 fade-in">
+      <p class="text-sm text-slate-400">${LIVE.humanQueue.length || LIVE.currentHuman !== null
+        ? 'Waiting for programmers…' : 'Waiting for all players to lock in…'}</p>
+      <div class="flex justify-center gap-2 flex-wrap">
+        ${e.players.map((p) => `
+          <span class="text-xs px-2.5 py-1 rounded-full border ${!p.alive
+            ? 'border-slate-800 text-slate-600'
+            : p.locked ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300' : 'border-slate-700 text-slate-400'}">
+            <span style="color:${p.color}">●</span> ${esc(p.name)} ${!p.alive ? '💀' : p.locked ? '🔒' : '…'}
+          </span>`).join('')}
+      </div>
+    </div>`;
+}
+
+/** During resolution: reveal every strip with the active tick highlighted. */
+function renderRevealStrip(tick) {
+  const e = LIVE.engine;
+  $('stripArea').innerHTML = `
+    <div class="max-w-3xl mx-auto space-y-1 fade-in">
+      ${e.players.map((p) => `
+        <div class="flex items-center gap-2">
+          <span class="w-16 text-[11px] truncate text-right" style="color:${p.color}">${esc(p.name)}</span>
+          <div class="flex gap-1">
+            ${Array.from({ length: e.cfg.commandSlots }, (_, i) => {
+              const c = p.commands?.[i];
+              const dead = !p.alive && i >= tick;   // greyed once the snake is gone
+              return `<span class="w-7 h-7 rounded-md flex items-center justify-center text-sm font-bold relative
+                         ${i === tick ? 'bg-slate-600 ring-1 ring-emerald-400' : 'bg-slate-800'}
+                         ${dead ? 'opacity-25' : ''}">
+                        ${c ? DIRS[c.dir].glyph : '·'}
+                        ${c?.turbo ? '<span class="absolute -top-1 -right-1 text-[9px]">⚡</span>' : ''}
+                      </span>`;
+            }).join('')}
+          </div>
+          <span class="text-[10px] text-slate-500">${p.alive ? '' : '💀'}</span>
+        </div>`).join('')}
+    </div>`;
+}
+
+/* keyboard controls for the strip */
+document.addEventListener('keydown', (ev) => {
+  if (LIVE.phase !== 'programming' || LIVE.currentHuman === null) return;
+  if (ev.target.tagName === 'INPUT') return;
+  const keyDir = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
+                   w: 'up', s: 'down', a: 'left', d: 'right' }[ev.key];
+  if (keyDir) { ev.preventDefault(); setDraftDir(keyDir); return; }
+  if (ev.key === 't' || ev.key === 'T') {
+    // toggle turbo on the most recently filled slot (or the selected one)
+    let i = LIVE.draftSel;
+    if (!LIVE.draft[i].dir && i > 0) i--;
+    LIVE.draft[i].turbo = !LIVE.draft[i].turbo;
+    renderHumanStrip();
+  }
+  if (ev.key === 'Backspace') {
+    ev.preventDefault();
+    let i = LIVE.draftSel;
+    if (!LIVE.draft[i]?.dir && i > 0) i--;
+    LIVE.draft[i].dir = null; LIVE.draft[i].turbo = false;
+    LIVE.draftSel = i;
+    renderHumanStrip();
+  }
+  if (ev.key === 'Enter' && LIVE.draft.every((d) => d.dir)) {
+    ev.preventDefault();                 // don't re-activate a still-focused button
+    LIVE.lockCurrentHuman();
+  }
+});
+
+/* ── scoreboard & event log ───────────────────────────────────────────── */
+
+function renderScoreboard() {
+  const e = LIVE.engine;
+  if (!e) return;
+  $('scoreboard').innerHTML = e.players.map((p) => {
+    const state = !p.alive ? (LIVE.phase === 'gameover' ? '💀' : '💀 respawning')
+      : LIVE.phase === 'programming' ? (p.locked ? '🔒 locked' : '✏️ programming')
+      : '';
+    const pips = Array.from({ length: e.cfg.maxEnergyStorage }, (_, i) =>
+      `<span class="inline-block w-1.5 h-3 rounded-sm ${i < p.energy ? 'bg-amber-400' : 'bg-slate-700'}"></span>`).join('');
+    return `
+      <div class="bg-slate-800/70 rounded-lg p-2.5 border-l-4" style="border-color:${p.color}">
+        <div class="flex items-center gap-1.5 text-sm">
+          <b>${esc(p.name)}</b>
+          <span class="text-[10px] text-slate-500">${p.isBot ? '🤖' : '🧠'}</span>
+          <span class="ml-auto font-black tabular-nums text-base">${p.score}</span>
+          <span class="text-[10px] text-slate-500">/${e.cfg.pointsToWin}</span>
+        </div>
+        <div class="flex items-center gap-2 mt-1 text-[11px] text-slate-400">
+          <span title="energy" class="flex gap-px items-center">${pips}</span>
+          <span title="length">🐍 ${p.alive ? p.body.length : '—'}</span>
+          <span title="deaths">💀 ${p.deaths}</span>
+          <span class="ml-auto text-[10px] ${p.locked && p.alive ? 'text-emerald-400' : 'text-slate-500'}">${state}</span>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function clearLog() { $('eventLog').innerHTML = ''; }
+function log(text, color) {
+  const div = document.createElement('div');
+  div.className = 'text-slate-400 flex gap-1.5 items-baseline';
+  div.innerHTML = `${color ? `<span style="color:${color}">●</span>` : '<span class="text-slate-700">·</span>'}<span>${text}</span>`;
+  const host = $('eventLog');
+  host.prepend(div);
+  while (host.children.length > 60) host.lastChild.remove();
+}
+
+/** Turn engine events into log lines + board effects. */
+function consumeEvents(events) {
+  const e = LIVE.engine;
+  for (const ev of events || []) {
+    if (ev.t === 'death') {
+      const p = e.players[ev.seat];
+      log(`💥 <b>${esc(p.name)}</b> died — ${CAUSE_LABELS[ev.cause].toLowerCase()} at length ${ev.len} (+${ev.pts} pts, ${ev.chips.length} bounty chips)`, p.color);
+      if (ev.at && e.inBounds(ev.at.x, ev.at.y)) Renderer.addEffect({ kind: 'boom', x: ev.at.x, y: ev.at.y, color: p.color, life: 650 });
+      else if (ev.chips[0]) Renderer.addEffect({ kind: 'boom', ...ev.chips[0], color: p.color, life: 650 });
+    }
+    else if (ev.t === 'eat') {
+      const p = e.players[ev.seat];
+      if (ev.onSpawn) log(`🍽️ ${esc(p.name)} spawned onto a ${ev.foodType === 'bounty' ? 'bounty chip' : 'food token'} and ate it`, p.color);
+      else if (ev.foodType === 'bounty') log(`💎 ${esc(p.name)} ate a bounty chip (+${e.cfg.bountyEnergyYield}⚡)`, p.color);
+    }
+    else if (ev.t === 'respawn') log(`🐣 ${esc(e.players[ev.seat].name)} respawned at (${ev.at.x + 1},${ev.at.y + 1})`, e.players[ev.seat].color);
+    else if (ev.t === 'noSpawn') log(`⛔ ${esc(e.players[ev.seat].name)} found no free spawn node — waiting a round`);
+    else if (ev.t === 'foodSpawn') log(`🍯 ${ev.cells.length} food token${ev.cells.length > 1 ? 's' : ''} spawned from the reserve`);
+  }
+}
+
+function setPhaseText(t) { $('phaseText').innerHTML = t; }
+function showEl(id) { $(id).classList.remove('hidden'); }
+function hideEl(id) { $(id).classList.add('hidden'); }
+function hideOverlays() { hideEl('passOverlay'); hideEl('gameOverOverlay'); }
+
+/* ════════════════════════════════════════════════════════════════════════
+   §9 SIMULATION DASHBOARD
+   Stat tiles + direct-labeled horizontal bars (values live at the bar tips,
+   identity in the row labels — no legend needed for single-series rows).
+   ════════════════════════════════════════════════════════════════════════ */
+
+function tile(label, value, sub = '') {
+  return `
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-3.5">
+      <div class="text-[11px] text-slate-400">${label}</div>
+      <div class="text-2xl font-semibold text-white mt-0.5">${value}</div>
+      ${sub ? `<div class="text-[11px] text-slate-500 mt-0.5">${sub}</div>` : ''}
+    </div>`;
+}
+
+/** One horizontal bar row: label · colored bar (≤24px, rounded tip) · value. */
+function barRow(label, value, max, color, valueText) {
+  const w = max > 0 ? Math.min(100, Math.max(value / max * 100, value > 0 ? 2 : 0)) : 0;
+  return `
+    <div class="flex items-center gap-2" title="${esc(label)}: ${esc(valueText)}">
+      <span class="w-28 text-xs text-slate-300 truncate shrink-0">${label}</span>
+      <div class="flex-1 h-[18px] relative">
+        <div class="grow-bar h-full rounded-r" style="width:${w}%;background:${color}"></div>
+      </div>
+      <span class="w-20 text-xs text-slate-200 tabular-nums text-right shrink-0">${valueText}</span>
+    </div>`;
+}
+
+function chartCard(title, inner, foot = '') {
+  return `
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+      <h3 class="text-sm font-semibold text-slate-200 mb-3">${title}</h3>
+      <div class="space-y-[6px] border-l border-slate-700 pl-2">${inner}</div>
+      ${foot ? `<p class="text-[11px] text-slate-500 mt-3">${foot}</p>` : ''}
+    </div>`;
+}
+
+function renderSimResults(a) {
+  const avgRounds = a.totalRounds / a.runs;
+  const avgScore = a.scoreSum / a.scoreCount;
+  const avgDeaths = a.deathsTotal / (a.runs * a.cfg.playerCount);
+  const totalDeaths = a.causes.wall + a.causes.head + a.causes.body;
+  const crashRate = a.turboExecuted ? (a.turboCrashes / a.turboExecuted * 100) : 0;
+  const maxCause = Math.max(a.causes.wall, a.causes.head, a.causes.body, 1);
+  const maxWins = Math.max(...a.winsBySeat, 1);
+  const pct = (n, d) => d ? `${Math.round(n / d * 100)}%` : '—';
+
+  $('simResults').innerHTML = `
+    <div class="space-y-4 fade-in">
+      <div class="flex items-baseline gap-3 flex-wrap">
+        <h2 class="text-lg font-bold text-white">Simulation results</h2>
+        <span class="text-xs text-slate-500">${a.runs} games · ${a.cfg.boardSize}×${a.cfg.boardSize} board · ${a.cfg.playerCount} bots ·
+          first to ${a.cfg.pointsToWin} pts · ${fmt1(a.ms)} ms total (${fmt1(a.ms / a.runs)} ms/game)</span>
+      </div>
+
+      <!-- KPI tiles -->
+      <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+        ${tile('Avg game length', `${fmt1(avgRounds)} <span class="text-sm font-normal text-slate-400">rounds</span>`,
+               `${pct(a.byScore, a.runs)} decided by score · ${pct(a.byCap, a.runs)} hit the round cap`)}
+        ${tile('Avg final score', fmt1(avgScore), 'per player, per game')}
+        ${tile('High score', a.scoreHigh, 'best single result')}
+        ${tile('Low score', a.scoreLow, 'worst single result')}
+        ${tile('Avg deaths', fmt1(avgDeaths), 'per player, per game')}
+        ${tile('Turbo crash rate', `${fmt1(crashRate)}%`, `${a.turboCrashes} of ${a.turboExecuted} turbo moves`)}
+      </div>
+
+      <!-- charts -->
+      <div class="grid md:grid-cols-2 gap-3">
+        ${chartCard('Death analytics — cause breakdown', ['wall', 'head', 'body'].map((c) =>
+          barRow(CAUSE_LABELS[c], a.causes[c], maxCause, CAUSE_COLORS[c],
+                 `${a.causes[c]} · ${pct(a.causes[c], totalDeaths)}`)).join(''),
+          `${totalDeaths} total deaths across the batch (${fmt1(totalDeaths / a.runs)} per game).`)}
+        ${chartCard('Wins by seat', a.winsBySeat.map((w, i) =>
+          barRow(`P${i + 1} 🤖`, w, maxWins, SEAT_COLORS[i].chart, `${w} · ${pct(w, a.runs)}`)).join(''),
+          'Ties at the round cap are broken randomly.')}
+      </div>
+
+      <div class="grid md:grid-cols-2 gap-3">
+        <!-- turbo efficiency meter -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+          <h3 class="text-sm font-semibold text-slate-200 mb-3">Turbo efficiency</h3>
+          <div class="flex items-center gap-4">
+            <div>
+              <div class="text-2xl font-semibold text-white">${a.turboExecuted}</div>
+              <div class="text-[11px] text-slate-500">turbo moves executed</div>
+            </div>
+            <div>
+              <div class="text-2xl font-semibold text-white">${a.turboCrashes}</div>
+              <div class="text-[11px] text-slate-500">ended in a crash</div>
+            </div>
+            <div class="flex-1">
+              <div class="h-[18px] rounded overflow-hidden" style="background:rgba(239,68,68,0.16)">
+                <div class="grow-bar h-full rounded-r" style="width:${Math.min(crashRate, 100)}%;background:#ef4444"></div>
+              </div>
+              <div class="text-[11px] text-slate-500 mt-1">crash share of all turbo moves — ${fmt1(crashRate)}%</div>
+            </div>
+          </div>
+        </div>
+        <!-- food density -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+          <h3 class="text-sm font-semibold text-slate-200 mb-3">Food left on board at game end</h3>
+          <div class="space-y-[6px] border-l border-slate-700 pl-2">
+            ${barRow('Neutral tokens', a.foodNeutralSum / a.runs, a.cfg.totalFoodTokens, '#c98500', `${fmt1(a.foodNeutralSum / a.runs)} avg`)}
+            ${barRow('Bounty chips', a.foodBountySum / a.runs, a.cfg.totalFoodTokens, '#3987e5', `${fmt1(a.foodBountySum / a.runs)} avg`)}
+          </div>
+          <p class="text-[11px] text-slate-500 mt-3">Scale: ${a.cfg.totalFoodTokens} total neutral tokens in the system.</p>
+        </div>
+      </div>
+    </div>`;
+}
+
+async function onRunSimulation() {
+  const btn = $('btnRunSim');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  btn.classList.add('opacity-50');
+  const runs = clamp(Math.round(Number($('simRuns').value) || 100), 1, 2000);
+  $('simRuns').value = runs;
+  const cfg = readConfig();
+  $('simStatus').textContent = `Running ${runs} headless games…`;
+  try {
+    const agg = await runBatch(cfg, runs, (f) => { $('simProgress').style.width = `${f * 100}%`; });
+    renderSimResults(agg);
+    $('simStatus').textContent = `Done — ${runs} games in ${fmt1(agg.ms)} ms.`;
+    window.Gobble.lastBatch = agg;
+  } catch (err) {
+    $('simStatus').textContent = `Simulation error: ${err.message}`;
+    console.error(err);
+  }
+  btn.disabled = false;
+  btn.classList.remove('opacity-50');
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   §10 BOOT & WIRING
+   ════════════════════════════════════════════════════════════════════════ */
+function boot() {
+  buildConfigPanel();
+  renderScoreTable(DEFAULT_SCORE_TABLE);
+  renderSeatRows();
+  Renderer.init();
+
+  $('cfg-playerCount').addEventListener('input', renderSeatRows);
+  $('btnAddScoreRow').onclick = () => {
+    const rows = readScoreTable();
+    const last = rows[rows.length - 1] || { min: 1, pts: 0 };
+    rows.push({ min: last.min + 3, pts: last.pts + 10 });
+    renderScoreTable(rows);
+  };
+  $('btnDefaults').onclick = () => {
+    for (const f of CONFIG_FIELDS) $(`cfg-${f.id}`).value = f.def;
+    renderScoreTable(DEFAULT_SCORE_TABLE);
+    renderSeatRows();
+  };
+
+  $('btnNewGame').onclick = (ev) => {
+    ev.currentTarget.blur();             // keep Enter-to-lock from re-firing this button
+    if ($('simModeToggle').checked) { $('simModeToggle').checked = false; syncSimMode(); }
+    LIVE.newGame();
+  };
+  $('btnRematch').onclick = () => LIVE.newGame();
+  $('btnCloseOver').onclick = () => hideEl('gameOverOverlay');
+  $('passStart').onclick = () => { hideEl('passOverlay'); renderHumanStrip(); };
+  $('speedSelect').onchange = () => { LIVE.speed = Number($('speedSelect').value); };
+
+  // Simulation Mode switch: board hidden, analytics view shown
+  const syncSimMode = () => {
+    const sim = $('simModeToggle').checked;
+    $('liveView').classList.toggle('hidden', sim);
+    $('simView').classList.toggle('hidden', !sim);
+    $('rightPanel').classList.toggle('hidden', sim);
+    if (!sim) Renderer.fit();       // canvas needs a re-measure after re-show
+  };
+  $('simModeToggle').onchange = syncSimMode;
+  $('btnRunSim').onclick = onRunSimulation;
+
+  // console/test API
+  window.Gobble = { makeConfig, Engine, Bot, runHeadlessGame, runBatch, LIVE, Renderer, readConfig };
+}
+document.addEventListener('DOMContentLoaded', boot);
+</script>
+</body>
+</html>
