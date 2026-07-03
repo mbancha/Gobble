@@ -41,28 +41,34 @@
       keep sliding. Collisions/food are evaluated per sub-step.
     • Turbo energy is checked at execution time; if the player can no longer
       afford it the move silently downgrades to a normal 1-cell move.
-    • A dead snake's HEAD token exits the board; only its body/tail chips flip
-      into bounty food. A tail piece already "in hand" (cleared this sub-step)
-      exits with the player.
+    • A dead snake's HEAD token exits the board, and only every OTHER body
+      piece (starting right behind the head) flips into bounty food — half
+      the chips, half the physical upkeep. The skipped pieces and any tail
+      piece already "in hand" (cleared this sub-step) exit with the player.
     • Eaten NEUTRAL tokens return to the reserve pool (they can respawn later);
       eaten BOUNTY chips leave the game for good.
     • End-of-round spawning rolls ceil(reserve/2) tokens so a lone last token
       still gets a chance.
-    • Respawn placement: a returning snake is placed on any STRAIGHT line of
-      3 empty cells (no snakes, no food), head at one end — and the head may
-      not FACE a food token. Humans click a head cell then pick a facing;
-      bots pick the legal spot with the most open space around the head
-      (flood fill) plus a mild pull toward food, so they aren't boxed in.
-      If startingLength > 3 the extra pieces stack on the tail cell and
-      un-stack as the snake moves. Spawn NODES are now purely food
-      real-estate. Dead players place in random order each round; if the
-      board is completely jammed a player sits the round out.
+    • Respawn placement: a returning snake is placed on ANY 3 contiguous
+      empty cells (no snakes, no food) — bends allowed. The head sits at one
+      end and points away from its neck (facing is derived, not chosen), and
+      that facing cell may not hold a food token. Humans click head → middle
+      → tail (arrow keys extend, Backspace undoes); bots pick the legal
+      shape with the most open space around the head (flood fill) plus a
+      mild pull toward food, so they aren't boxed in. If startingLength > 3
+      the extra pieces stack on the tail cell and un-stack as the snake
+      moves. Spawn NODES are now purely food real-estate. Dead players place
+      in random order each round; a fully jammed board means sitting the
+      round out.
     • 2× tokens: a configurable share of the neutral supply (default 20%)
       grants TWO growth units — the second piece stacks behind the head on
-      the gap cell, just like the first. Energy yield is normal.
+      the gap cell, just like the first — and DOUBLE energy.
     • Snake growth is capped by maxSnakeLength — the game does NOT end there.
       Every growth unit a capped snake can't fit converts on the spot into
       maxLengthFoodBonus points (a 2× token = two units, i.e. double bonus).
+      The default bonus is deliberately BIG (≈ a full-snake death bank), so
+      the dominant line is always: grow to max, stay alive, keep eating —
+      resetting yourself throws that engine away.
     • Reaching pointsToWin ends the game instantly — then every LIVING snake
       banks its current length through the score table (the final cash-out),
       and TOTALS decide the winner, so the trigger player doesn't always win.
@@ -164,7 +170,7 @@
         <div class="mt-2 flex gap-4">
           <button id="btnAddScoreRow" class="text-xs text-emerald-400 hover:text-emerald-300">+ add threshold</button>
           <button id="btnTriangular" class="text-xs text-amber-400 hover:text-amber-300"
-                  title="Regenerate the triangular default (1, 3, 6, 10…) from the current starting & max lengths">↺ triangular fill</button>
+                  title="Regenerate the halved-triangular default (1, 2, 3, 5, 8…) from the current starting & max lengths">↺ triangular fill</button>
         </div>
       </section>
 
@@ -345,31 +351,33 @@ const CONFIG_FIELDS = [
   { id: 'spawnLocationsCount', label: 'Food spawn nodes',        min: 4,  max: 64,  def: 30,  group: 'Board & players', hint: 'Numbered nodes where food tokens spawn' },
   { id: 'startingLength',      label: 'Starting length',         min: 2,  max: 8,   def: 4,   group: 'Board & players', hint: 'Segments at spawn (incl. head)' },
   // ── movement & turbo ──
-  { id: 'commandSlots',        label: 'Command slots',           min: 2,  max: 8,   def: 5,   group: 'Movement & turbo', hint: 'Moves programmed per round' },
+  { id: 'commandSlots',        label: 'Command slots',           min: 2,  max: 8,   def: 6,   group: 'Movement & turbo', hint: 'Moves programmed per round' },
   { id: 'turboDistance',       label: 'Turbo distance',          min: 2,  max: 6,   def: 3,   group: 'Movement & turbo', hint: 'Cells covered by one turbo slide' },
-  { id: 'turboEnergyCost',     label: 'Turbo energy cost',       min: 0,  max: 6,   def: 1,   group: 'Movement & turbo', hint: 'Energy spent per turbo slot' },
+  { id: 'turboEnergyCost',     label: 'Turbo energy cost',       min: 0,  max: 6,   def: 2,   group: 'Movement & turbo', hint: 'Energy spent per turbo slot' },
   { id: 'maxEnergyStorage',    label: 'Max energy storage',      min: 1,  max: 20,  def: 6,   group: 'Movement & turbo', hint: 'Energy hoard cap' },
   // ── food economy ──
   { id: 'totalFoodTokens',     label: 'Total food tokens',       min: 5,  max: 120, def: 40,  group: 'Food economy', hint: 'Neutral tokens in the whole system' },
   { id: 'startingFoodInPlay',  label: 'Starting food in play',   min: 0,  max: 120, def: 20,  group: 'Food economy', hint: 'Neutral tokens on the board at start' },
-  { id: 'foodEnergyYield',     label: 'Food energy yield',       min: 1,  max: 8,   def: 2,   group: 'Food economy', hint: 'Energy per neutral token' },
-  { id: 'bountyEnergyYield',   label: 'Bounty energy yield',     min: 1,  max: 12,  def: 4,   group: 'Food economy', hint: 'Energy per dead-snake chip' },
+  { id: 'foodEnergyYield',     label: 'Food energy yield',       min: 1,  max: 8,   def: 1,   group: 'Food economy', hint: 'Energy per neutral token (2× token = double)' },
+  { id: 'bountyEnergyYield',   label: 'Bounty energy yield',     min: 1,  max: 12,  def: 2,   group: 'Food economy', hint: 'Energy per dead-snake chip' },
   { id: 'doubleFoodPercent',   label: '2× food share (%)',       min: 0,  max: 100, def: 20,  group: 'Food economy', hint: 'Share of neutral tokens granting double growth' },
   // ── match & guards ──
-  { id: 'pointsToWin',         label: 'Points to win',           min: 10, max: 500, def: 100, group: 'Match rules', hint: 'Instant victory threshold' },
+  { id: 'pointsToWin',         label: 'Points to win',           min: 10, max: 500, def: 150, group: 'Match rules', hint: 'Instant victory threshold' },
   { id: 'maxSnakeLength',      label: 'Max snake length',        min: 6,  max: 64,  def: 20,  group: 'Match rules', hint: 'Body-piece supply cap' },
-  { id: 'maxLengthFoodBonus',  label: 'Max-length food bonus',   min: 0,  max: 50,  def: 5,   group: 'Match rules', hint: 'Points per growth unit a capped snake eats (2× = two units)' },
+  { id: 'maxLengthFoodBonus',  label: 'Max-length food bonus',   min: 0,  max: 250, def: 60,  group: 'Match rules', hint: 'Points per growth unit a capped snake eats (2× = two units) — big by design, ≈ a full-snake bank' },
   { id: 'maxRounds',           label: 'Max rounds (guard)',      min: 10, max: 500, def: 100, group: 'Match rules', hint: 'Highest score wins at the cap' },
   { id: 'panicSeconds',        label: 'Panic timer (s)',         min: 5,  max: 60,  def: 15,  group: 'Match rules', hint: 'Countdown once the first player locks' },
 ];
 
-/** Default score table: 0 pts through the starting length, then a triangular
-    climb — length 5 = 1, 6 = 3, 7 = 6, 8 = 10 … (one extra point per step),
-    one row per length integer up to the max snake length. */
+/** Default score table: 0 pts through the starting length, then a HALVED
+    triangular climb — length 5 = 1, 6 = 2, 7 = 3, 8 = 5, 9 = 8, 10 = 11 …
+    (ceil of the triangular numbers over two: same steady incentive, smaller
+    numbers to track physically), one row per length integer up to the max
+    snake length (20 → 68). */
 function triangularScoreTable(startLen = 4, maxLen = 20) {
   const rows = [{ min: 1, pts: 0 }];
-  let pts = 0, step = 1;
-  for (let L = startLen + 1; L <= maxLen; L++) { pts += step++; rows.push({ min: L, pts }); }
+  let tri = 0, step = 1;
+  for (let L = startLen + 1; L <= maxLen; L++) { tri += step++; rows.push({ min: L, pts: Math.ceil(tri / 2) }); }
   return rows;
 }
 const DEFAULT_SCORE_TABLE = triangularScoreTable();
@@ -616,65 +624,85 @@ class Engine {
 
   /* ── spawning ──────────────────────────────────────────────────────── */
 
-  /** Spawn footprint: head + up to two pieces in a straight line behind it.
-      Any remaining starting pieces stack on the tail cell. */
+  /** Spawn footprint: a contiguous chain of up to 3 distinct cells, head
+      first — bends allowed. Any remaining starting pieces stack on the tail
+      cell. */
   spawnFootprint() { return Math.min(3, this.cfg.startingLength); }
 
-  /** A legal placement: the footprint cells (head + line behind it) are
-      in-bounds and empty of snakes AND food, and the head must not be FACING
-      a food token. Returns the footprint cells, or null. */
-  validPlacement(x, y, facing) {
-    const d = DIRS[facing];
-    const cells = [];
-    for (let i = 0; i < this.spawnFootprint(); i++) {
-      const cx = x - d.dx * i, cy = y - d.dy * i;      // body extends behind the head
-      if (!this.inBounds(cx, cy)) return null;
-      cells.push({ x: cx, y: cy });
-    }
-    const occ = this.occupancy();
-    for (const c of cells) {
-      const k = cellKey(c.x, c.y);
-      if (occ.has(k) || this.food.has(k)) return null;
-    }
-    const fx = x + d.dx, fy = y + d.dy;                // the cell the head faces
-    if (this.inBounds(fx, fy) && this.food.has(cellKey(fx, fy))) return null;
-    return cells;
+  /** A placed head points away from its neck — facing is derived from the
+      chain, never chosen separately. */
+  chainFacing(cells) {
+    if (cells.length < 2) return 'up';
+    const dx = cells[0].x - cells[1].x, dy = cells[0].y - cells[1].y;
+    return dx === 1 ? 'right' : dx === -1 ? 'left' : dy === 1 ? 'down' : 'up';
   }
 
-  /** Place a dead player's snake with its head at (x,y), facing `facing`.
-      Returns the respawn event, or null if the placement is illegal. */
-  placeSnake(p, x, y, facing) {
-    const cells = this.validPlacement(x, y, facing);
-    if (!cells) return null;
+  /** Validate a full placement chain [head, …]: the right number of DISTINCT
+      cells, each orthogonally adjacent to the previous, all in-bounds and
+      empty of snakes AND food — and the head must not be facing food. */
+  validChain(cells) {
+    if (!Array.isArray(cells) || cells.length !== this.spawnFootprint()) return false;
+    const occ = this.occupancy();
+    const seen = new Set();
+    for (let i = 0; i < cells.length; i++) {
+      const c = cells[i];
+      if (!this.inBounds(c.x, c.y)) return false;
+      const k = cellKey(c.x, c.y);
+      if (seen.has(k) || occ.has(k) || this.food.has(k)) return false;
+      seen.add(k);
+      if (i > 0 && Math.abs(c.x - cells[i - 1].x) + Math.abs(c.y - cells[i - 1].y) !== 1) return false;
+    }
+    const d = DIRS[this.chainFacing(cells)];
+    const fx = cells[0].x + d.dx, fy = cells[0].y + d.dy;
+    if (this.inBounds(fx, fy) && this.food.has(cellKey(fx, fy))) return false;
+    return true;
+  }
+
+  /** Place a dead player's snake along `cells` (head first). Returns the
+      respawn event, or null if the chain is illegal. */
+  placeSnake(p, cells) {
+    if (!this.validChain(cells)) return null;
     const body = cells.map((c) => ({ ...c }));
-    while (body.length < this.cfg.startingLength) body.push({ ...cells[cells.length - 1] });
+    while (body.length < this.cfg.startingLength) body.push({ ...body[body.length - 1] });
     p.body = body;
     p.alive = true;
-    p.facing = facing;
-    return { t: 'respawn', seat: p.seat, at: { x, y } };
+    p.facing = this.chainFacing(cells);
+    return { t: 'respawn', seat: p.seat, at: { ...cells[0] } };
   }
 
-  /** Bot/auto placement: sample legal spawns and keep the one with the most
-      open space around the head (flood fill over non-snake cells — food is
-      edible so it doesn't wall you in), a mild pull toward the nearest food,
-      and a small penalty for staring straight at a wall or a body. This is
-      the anti-enclosure heuristic. Returns {x, y, dir} or null. */
+  /** Bot/auto placement: enumerate legal chains (straight AND bent) from
+      randomly ordered head cells, then keep the one with the most open space
+      around the head (flood fill over non-snake cells — food is edible so it
+      doesn't wall you in), a mild pull toward the nearest food, and a small
+      penalty for staring straight at a wall or a body. This is the
+      anti-enclosure heuristic. Returns the chain cells, or null. */
   smartPlacement() {
+    const L = this.spawnFootprint();
     const candidates = [];
-    const cellsOrder = rngShuffle(this.rng, Array.from({ length: this.N * this.N }, (_, i) => i));
-    for (const ci of cellsOrder) {
-      const x = ci % this.N, y = Math.floor(ci / this.N);
-      for (const dir of DIR_LIST) if (this.validPlacement(x, y, dir)) candidates.push({ x, y, dir });
-      if (candidates.length >= 48) break;              // enough options to choose between
+    const order = rngShuffle(this.rng, Array.from({ length: this.N * this.N }, (_, i) => i));
+    for (const ci of order) {
+      const head = { x: ci % this.N, y: Math.floor(ci / this.N) };
+      const grow = (chain) => {                        // depth ≤ 2: enumerates bends too
+        if (chain.length === L) { if (this.validChain(chain)) candidates.push(chain); return; }
+        const last = chain[chain.length - 1];
+        for (const d of DIR_LIST) {
+          const nx = last.x + DIRS[d].dx, ny = last.y + DIRS[d].dy;
+          if (chain.some((c) => c.x === nx && c.y === ny)) continue;
+          grow([...chain, { x: nx, y: ny }]);
+        }
+      };
+      grow([head]);
+      if (candidates.length >= 60) break;              // enough options to choose between
     }
     if (!candidates.length) return null;
     const occ = this.occupancy();
     const foods = [...this.food.keys()].map((k) => ({ x: k & 63, y: k >> 6 }));
     let best = null, bestScore = -Infinity;
-    for (const c of candidates) {
+    for (const chain of candidates) {
+      const h = chain[0];
       // openness: flood fill from the head, capped — snakes block, food doesn't
-      const seen = new Set([cellKey(c.x, c.y)]);
-      const q = [c];
+      const seen = new Set([cellKey(h.x, h.y)]);
+      const q = [h];
       while (q.length && seen.size < 24) {
         const cur = q.shift();
         for (const d of DIR_LIST) {
@@ -685,11 +713,12 @@ class Engine {
         }
       }
       let foodDist = this.N;
-      for (const f of foods) foodDist = Math.min(foodDist, Math.abs(f.x - c.x) + Math.abs(f.y - c.y));
-      const fx = c.x + DIRS[c.dir].dx, fy = c.y + DIRS[c.dir].dy;
+      for (const f of foods) foodDist = Math.min(foodDist, Math.abs(f.x - h.x) + Math.abs(f.y - h.y));
+      const fd = DIRS[this.chainFacing(chain)];
+      const fx = h.x + fd.dx, fy = h.y + fd.dy;
       const facingBlocked = !this.inBounds(fx, fy) || occ.has(cellKey(fx, fy));
       const score = seen.size * 4 - foodDist - (facingBlocked ? 3 : 0) + this.rng();
-      if (score > bestScore) { bestScore = score; best = c; }
+      if (score > bestScore) { bestScore = score; best = chain; }
     }
     return best;
   }
@@ -700,9 +729,9 @@ class Engine {
     const events = [];
     const dead = rngShuffle(this.rng, this.players.filter((p) => !p.alive && (!filter || filter(p))));
     for (const p of dead) {
-      const spot = this.smartPlacement();
-      if (!spot) { events.push({ t: 'noSpawn', seat: p.seat }); continue; }
-      events.push(this.placeSnake(p, spot.x, spot.y, spot.dir));
+      const chain = this.smartPlacement();
+      if (!chain) { events.push({ t: 'noSpawn', seat: p.seat }); continue; }
+      events.push(this.placeSnake(p, chain));
     }
     return events;
   }
@@ -816,8 +845,9 @@ class Engine {
         let units = 1;                                      // growth units carried by this food
         if (f.type === 'neutral') {
           this.reserve.push(f.token);                       // eaten tokens rejoin the reserve pool
-          if (f.token.double) units = 2;                    // 2× token: double growth
-          p.energy = Math.min(this.cfg.maxEnergyStorage, p.energy + this.cfg.foodEnergyYield);
+          if (f.token.double) units = 2;                    // 2× token: double growth AND double energy
+          const gain = this.cfg.foodEnergyYield * (f.token.double ? 2 : 1);
+          p.energy = Math.min(this.cfg.maxEnergyStorage, p.energy + gain);
         } else {
           p.energy = Math.min(this.cfg.maxEnergyStorage, p.energy + this.cfg.bountyEnergyYield);
         }
@@ -846,23 +876,26 @@ class Engine {
     return events;
   }
 
-  /** Death: bank length points, flip on-board body chips into bounty food. */
+  /** Death: bank length points, flip body chips into bounty food. Only every
+      OTHER piece flips (starting right behind the head) — half the chips,
+      half the physical upkeep; the skipped pieces exit with the player. The
+      head token never flips. */
   killSnake(p, cause, clearedTail, events, crashAt) {
     const lenAtDeath = p.body.length + (clearedTail ? 1 : 0);
     const pts = this.scoreForLength(lenAtDeath);
     p.score += pts;
     p.deaths++;
     this.stats.deathsByCause[cause]++;
-    // body/tail chips (NOT the head token) flip to player-colored bounty
     const chips = [];
     const seen = new Set();
-    for (const c of p.body.slice(1)) {
+    p.body.slice(1).forEach((c, i) => {
+      if (i % 2 !== 0) return;                         // every other piece only
       const k = cellKey(c.x, c.y);
-      if (seen.has(k) || this.food.has(k)) continue;   // dedupe stacked spawn cells
+      if (seen.has(k) || this.food.has(k)) return;     // dedupe stacked spawn cells
       seen.add(k);
       this.food.set(k, { type: 'bounty', ownerSeat: p.seat });
       chips.push({ ...c });
-    }
+    });
     p.alive = false;
     p.body = [];
     events.push({ t: 'death', seat: p.seat, cause, len: lenAtDeath, pts, chips, at: crashAt });
@@ -1079,6 +1112,7 @@ function runHeadlessGame(cfg, seed) {
     causes: { ...e.stats.deathsByCause },
     turboExecuted: e.stats.turboExecuted,
     turboCrashes: e.stats.turboCrashes,
+    bonusPoints: e.stats.bonusPoints,
     foodNeutralEnd: food.neutral,
     foodBountyEnd: food.bounty,
   };
@@ -1192,7 +1226,7 @@ const Sound = {
 const Renderer = {
   canvas: null, ctx: null, cell: 0, N: 12,
   effects: [],       // {kind:'boom'|'trail', ..., born, life}
-  highlight: null,   // {x, y, color} — placement-mode head selection
+  highlight: null,   // {cells:[{x,y}…], color} — placement-mode chain preview
 
   init() {
     this.canvas = $('board');
@@ -1360,16 +1394,18 @@ const Renderer = {
       }
     }
 
-    // placement-mode head selection highlight
-    if (this.highlight) {
-      const hx = this.px(this.highlight.x), hy = this.px(this.highlight.y);
-      ctx.fillStyle = this.highlight.color || '#fff';
-      ctx.globalAlpha = 0.22;
-      ctx.fillRect(hx + 2, hy + 2, s - 4, s - 4);
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = this.highlight.color || '#fff';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(hx + 2, hy + 2, s - 4, s - 4);
+    // placement-mode chain highlight (first cell = the head, drawn boldest)
+    if (this.highlight?.cells?.length) {
+      this.highlight.cells.forEach((c, i) => {
+        const hx = this.px(c.x), hy = this.px(c.y);
+        ctx.fillStyle = this.highlight.color || '#fff';
+        ctx.globalAlpha = i === 0 ? 0.3 : 0.18;
+        ctx.fillRect(hx + 2, hy + 2, s - 4, s - 4);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = this.highlight.color || '#fff';
+        ctx.lineWidth = i === 0 ? 3 : 1.5;
+        ctx.strokeRect(hx + 2, hy + 2, s - 4, s - 4);
+      });
     }
 
     // transient effects
@@ -1413,7 +1449,7 @@ const LIVE = {
   humanQueue: [],           // seats still to program this round
   currentHuman: null,       // seat currently editing the strip
   placing: false,           // current human is choosing a spawn placement
-  placeHead: null,          // {x,y} chosen head cell during placement
+  placeChain: [],           // [{x,y}…] head-first placement chain being built
   draft: null,              // [{dir|null, turbo}] for the current human
   draftSel: 0,              // selected slot index
   botTimers: [],
@@ -1438,7 +1474,7 @@ const LIVE = {
     Renderer.effects = [];
     Renderer.highlight = null;
     this.placing = false;
-    this.placeHead = null;
+    this.placeChain = [];
     Renderer.draw(this.engine);
     this.startProgramming();
   },
@@ -1499,7 +1535,7 @@ const LIVE = {
     }
     this.currentHuman = seat;
     this.placing = !p.alive;
-    this.placeHead = null;
+    this.placeChain = [];
     this.draft = Array.from({ length: this.engine.cfg.commandSlots }, () => ({ dir: null, turbo: false }));
     this.draftSel = 0;
     if (this.multiHuman) {
@@ -1514,27 +1550,71 @@ const LIVE = {
 
   /* ── spawn placement (dead humans at the top of their turn) ────────── */
 
-  /** Human clicked a facing direction (or pressed an arrow) for the chosen head cell. */
-  tryPlace(dir) {
-    if (!this.placing || !this.placeHead || this.currentHuman === null) return;
-    const p = this.engine.players[this.currentHuman];
-    const ev = this.engine.placeSnake(p, this.placeHead.x, this.placeHead.y, dir);
-    if (!ev) return;                       // illegal — buttons for legal dirs stay enabled
-    this.finishPlacement([ev]);
+  /**
+   * Grow the placement chain by one cell (from a board click or an arrow
+   * key). Head first, then each piece adjacent to the previous — bends
+   * welcome. Clicking a fresh empty cell restarts the chain from there.
+   * When the chain reaches the footprint the snake is placed.
+   */
+  tryExtendChain(cell) {
+    if (!this.placing || this.currentHuman === null) return;
+    const e = this.engine;
+    if (!e.inBounds(cell.x, cell.y)) return;
+    const k = cellKey(cell.x, cell.y);
+    const emptyCell = !e.occupancy().has(k) && !e.food.has(k);
+    const chain = this.placeChain;
+    const inChain = chain.some((c) => c.x === cell.x && c.y === cell.y);
+    const last = chain[chain.length - 1];
+    const adjacent = last && Math.abs(cell.x - last.x) + Math.abs(cell.y - last.y) === 1;
+
+    if (chain.length && adjacent && emptyCell && !inChain) {
+      if (chain.length === 1) {
+        // neck chosen → head facing is now known; it may not stare at food
+        const fx = chain[0].x + (chain[0].x - cell.x), fy = chain[0].y + (chain[0].y - cell.y);
+        if (e.inBounds(fx, fy) && e.food.has(cellKey(fx, fy))) {
+          log('🚫 that neck would leave the head facing food — pick another cell');
+          return;
+        }
+      }
+      chain.push({ ...cell });
+      if (chain.length === e.spawnFootprint()) {
+        const ev = e.placeSnake(e.players[this.currentHuman], chain.map((c) => ({ ...c })));
+        if (ev) { this.finishPlacement([ev]); return; }
+        chain.pop();                       // defensive — validChain said no
+      }
+    } else if (emptyCell && !inChain) {
+      this.placeChain = [{ ...cell }];     // restart from a new head cell
+    } else {
+      return;                              // ignored: occupied / duplicate cell
+    }
+    Renderer.highlight = { cells: [...this.placeChain], color: this.engine.players[this.currentHuman].color };
+    Renderer.draw(e);
+    renderPlacementStrip();
   },
 
-  /** Let the anti-enclosure heuristic pick a spot for the current human. */
+  /** Undo the last chain cell (Backspace). */
+  popChainCell() {
+    if (!this.placing || !this.placeChain.length) return;
+    this.placeChain.pop();
+    Renderer.highlight = this.placeChain.length
+      ? { cells: [...this.placeChain], color: this.engine.players[this.currentHuman].color }
+      : null;
+    Renderer.draw(this.engine);
+    renderPlacementStrip();
+  },
+
+  /** Let the anti-enclosure heuristic pick a shape for the current human. */
   autoPlace() {
     if (!this.placing || this.currentHuman === null) return;
     const p = this.engine.players[this.currentHuman];
-    const spot = this.engine.smartPlacement();
-    if (!spot) return;
-    this.finishPlacement([this.engine.placeSnake(p, spot.x, spot.y, spot.dir)]);
+    const chain = this.engine.smartPlacement();
+    if (!chain) return;
+    this.finishPlacement([this.engine.placeSnake(p, chain)]);
   },
 
   finishPlacement(events) {
     this.placing = false;
-    this.placeHead = null;
+    this.placeChain = [];
     Renderer.highlight = null;
     consumeEvents(events);
     Renderer.draw(this.engine);
@@ -1576,7 +1656,7 @@ const LIVE = {
     log('🚨 PANIC! All remaining strips auto-locked.');
     consumeEvents(this.engine.respawnDead((q) => !q.isBot));   // auto-place lingering humans
     this.placing = false;
-    this.placeHead = null;
+    this.placeChain = [];
     Renderer.highlight = null;
     this.humanQueue = [];
     hideEl('passOverlay');
@@ -1787,38 +1867,39 @@ function renderHumanStrip() {
   };
 }
 
-/** Placement strip: shown when a dead human starts their turn — click a
-    board cell for the head, then pick a facing (body extends behind it). */
+/** Placement strip: shown when a dead human starts their turn — click the
+    HEAD cell, then each next body piece (adjacent, bends welcome). Facing is
+    derived: the head points away from its neck. */
 function renderPlacementStrip() {
   const e = LIVE.engine;
   const p = e.players[LIVE.currentHuman];
-  const head = LIVE.placeHead;
-  const dirBtns = DIR_LIST.map((d) => {
-    const okDir = head && !!e.validPlacement(head.x, head.y, d);
-    return `<button data-place-dir="${d}" ${okDir ? '' : 'disabled'}
-      class="w-11 h-11 rounded-lg border text-xl font-black transition-colors
-             ${okDir ? 'bg-slate-700 hover:bg-emerald-500 hover:text-slate-950 border-slate-500 text-white'
-                     : 'bg-slate-800/50 text-slate-700 border-slate-800 cursor-not-allowed'}">${DIRS[d].glyph}</button>`;
-  }).join('');
+  const chain = LIVE.placeChain;
+  const need = e.spawnFootprint();
+  const stepText = chain.length === 0
+    ? `click a board cell for the <b class="text-slate-200">head</b>`
+    : chain.length < need
+      ? `piece ${chain.length + 1} of ${need} — click a cell <b class="text-slate-200">adjacent</b> to the last one (bends OK)`
+      : '';
+  const pips = Array.from({ length: need }, (_, i) => `
+    <span class="w-8 h-8 rounded-md flex items-center justify-center text-[10px] font-bold border
+                 ${i < chain.length ? 'text-slate-950 border-transparent' : 'bg-slate-800 text-slate-600 border-slate-700'}"
+          ${i < chain.length ? `style="background:${p.color}"` : ''}>
+      ${i === 0 ? 'HEAD' : i + 1}
+    </span>`).join('');
   $('stripArea').innerHTML = `
     <div class="max-w-3xl mx-auto fade-in">
       <div class="flex items-center gap-2 mb-2 text-sm">
         <span class="w-3 h-3 rounded-full" style="background:${p.color}"></span>
         <b>${esc(p.name)}</b>
-        <span class="text-slate-400 text-xs">🐣 place your snake — ${head
-          ? 'now choose a facing direction'
-          : 'click a board cell for the <b class="text-slate-200">head</b>'}</span>
-        <span class="ml-auto text-[11px] text-slate-500">head + ${e.spawnFootprint() - 1} cells behind must be empty · head can't face food</span>
+        <span class="text-slate-400 text-xs">🐣 place your snake — ${stepText}</span>
+        <span class="ml-auto text-[11px] text-slate-500">${need} contiguous empty cells · the head points away from its neck &amp; can't face food</span>
       </div>
       <div class="flex items-center gap-3">
-        <div class="flex gap-1.5">${dirBtns}</div>
+        <div class="flex gap-1.5">${pips}</div>
         <button id="btnAutoPlace" class="px-4 py-2 rounded-lg text-sm bg-slate-800 hover:bg-slate-700 text-slate-300">🎲 Auto-place</button>
-        ${head ? `<span class="text-xs text-slate-400">head at (${head.x + 1}, ${head.y + 1}) — the body trails opposite the arrow</span>` : ''}
+        <span class="text-[11px] text-slate-500">arrows extend from the last piece · ⌫ undo · click elsewhere to restart</span>
       </div>
     </div>`;
-  $('stripArea').querySelectorAll('[data-place-dir]').forEach((b) => {
-    b.onclick = () => LIVE.tryPlace(b.dataset.placeDir);
-  });
   $('btnAutoPlace').onclick = () => LIVE.autoPlace();
 }
 
@@ -1879,8 +1960,13 @@ document.addEventListener('keydown', (ev) => {
   if (ev.target.tagName === 'INPUT') return;
   const keyDir = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
                    w: 'up', s: 'down', a: 'left', d: 'right' }[ev.key];
-  if (LIVE.placing) {                       // placement mode: arrows pick the facing
-    if (keyDir && LIVE.placeHead) { ev.preventDefault(); LIVE.tryPlace(keyDir); }
+  if (LIVE.placing) {                       // placement mode: arrows extend the chain
+    if (keyDir && LIVE.placeChain.length) {
+      ev.preventDefault();
+      const last = LIVE.placeChain[LIVE.placeChain.length - 1];
+      LIVE.tryExtendChain({ x: last.x + DIRS[keyDir].dx, y: last.y + DIRS[keyDir].dy });
+    }
+    if (ev.key === 'Backspace') { ev.preventDefault(); LIVE.popChainCell(); }
     return;
   }
   if (keyDir) { ev.preventDefault(); setDraftDir(keyDir); return; }
@@ -2170,17 +2256,13 @@ function boot() {
     clamp(Math.round(Number($('cfg-startingLength').value) || 4), 2, 8),
     clamp(Math.round(Number($('cfg-maxSnakeLength').value) || 20), 6, 64)));
 
-  // placement mode: click a board cell to choose the spawn head
+  // placement mode: click cells to build the spawn chain (head → … → tail)
   $('board').addEventListener('click', (ev) => {
     if (LIVE.phase !== 'programming' || !LIVE.placing || LIVE.currentHuman === null) return;
     const rect = ev.currentTarget.getBoundingClientRect();
     const x = Math.floor((ev.clientX - rect.left) / Renderer.cell);
     const y = Math.floor((ev.clientY - rect.top) / Renderer.cell);
-    if (!LIVE.engine.inBounds(x, y)) return;
-    LIVE.placeHead = { x, y };
-    Renderer.highlight = { x, y, color: LIVE.engine.players[LIVE.currentHuman].color };
-    Renderer.draw(LIVE.engine);
-    renderPlacementStrip();
+    LIVE.tryExtendChain({ x, y });
   });
 
   // Simulation Mode switch: board hidden, analytics view shown

@@ -4,13 +4,15 @@ A playable prototype and data-simulation sandbox for a **simultaneous-programmin
 board game**, contained in a single HTML file.
 
 Every round, all players secretly program a strip of moves (with optional energy-burning
-**Turbo** slides), then the strip resolves tick-by-tick simultaneously. Dying flips your
-body into double-value bounty food and **banks points based on your length** (a triangular
-table: 1, 3, 6, 10 … per length step past your starting size). Dead snakes re-enter by
-**placing onto any straight line of 3 empty cells** (the head can't face food). A fifth of
-the food supply are **2× tokens** worth double growth; snakes at max length convert extra
-food into instant bonus points. When someone reaches the target score every living snake
-cashes out its length — the highest **total** wins.
+**Turbo** slides), then the strip resolves tick-by-tick simultaneously. Dying flips **every
+other body piece** into double-value bounty food and **banks points based on your length**
+(a halved-triangular table: 1, 2, 3, 5, 8 … per length step past your starting size). Dead
+snakes re-enter by **placing onto any 3 contiguous empty cells** — bends allowed, facing
+derives from the neck, and the head can't face food. A fifth of the food supply are
+**2× tokens** worth double growth *and* double energy; snakes at max length convert every
+extra growth unit into a **big instant bonus** (≈ a full-snake bank per food), so the
+dominant plan is to get huge and keep eating. When someone reaches the target score every
+living snake cashes out its length — the highest **total** wins.
 
 ## Run it
 
