@@ -352,7 +352,7 @@ const CONFIG_FIELDS = [
   { id: 'boardSize',           label: 'Board size (N×N)',        min: 8,  max: 24,  def: 12,  group: 'Board & players', hint: 'Grid dimensions' },
   { id: 'playerCount',         label: 'Players',                 min: 2,  max: 8,   def: 4,   group: 'Board & players', hint: '2–8 snakes' },
   { id: 'spawnLocationsCount', label: 'Food spawn nodes',        min: 4,  max: 64,  def: 30,  group: 'Board & players', hint: 'Numbered nodes where food tokens spawn' },
-  { id: 'startingLength',      label: 'Starting length',         min: 2,  max: 24,  def: 15,  group: 'Board & players', hint: 'Segments at spawn (incl. head)' },
+  { id: 'startingLength',      label: 'Starting length',         min: 2,  max: 15,  def: 4,   group: 'Board & players', hint: 'Segments at spawn (incl. head)' },
   // ── movement & turbo ──
   { id: 'commandSlots',        label: 'Command slots',           min: 2,  max: 8,   def: 6,   group: 'Movement & turbo', hint: 'Moves programmed per round' },
   { id: 'turboDistance',       label: 'Turbo distance',          min: 2,  max: 6,   def: 3,   group: 'Movement & turbo', hint: 'Cells covered by one turbo slide' },
@@ -366,24 +366,30 @@ const CONFIG_FIELDS = [
   { id: 'doubleFoodPercent',   label: '2× food share (%)',       min: 0,  max: 100, def: 20,  group: 'Food economy', hint: 'Share of neutral tokens granting double growth' },
   // ── match & guards ──
   { id: 'pointsToWin',         label: 'Points to win',           min: 10, max: 500, def: 150, group: 'Match rules', hint: 'Instant victory threshold' },
-  { id: 'maxSnakeLength',      label: 'Max snake length',        min: 6,  max: 64,  def: 30,  group: 'Match rules', hint: 'Body-piece supply cap' },
-  { id: 'maxLengthFoodBonus',  label: 'Max-length food bonus',   min: 0,  max: 250, def: 60,  group: 'Match rules', hint: 'Points per growth unit a capped snake eats (2× = two units) — big by design, ≈ a full-snake bank' },
+  { id: 'maxSnakeLength',      label: 'Max snake length',        min: 6,  max: 64,  def: 15,  group: 'Match rules', hint: 'Body-piece supply cap' },
+  { id: 'maxLengthFoodBonus',  label: 'Max-length food bonus',   min: 0,  max: 250, def: 30,  group: 'Match rules', hint: 'Points per growth unit a capped snake eats (2× = two units) — big by design, ≈ a full-snake bank' },
   { id: 'maxRounds',           label: 'Max rounds (guard)',      min: 10, max: 500, def: 100, group: 'Match rules', hint: 'Highest score wins at the cap' },
   { id: 'panicSeconds',        label: 'Panic timer (s)',         min: 5,  max: 60,  def: 15,  group: 'Match rules', hint: 'Countdown once the first player locks' },
 ];
 
-/** Default score table: 0 pts through the starting length, then a HALVED
-    triangular climb — length 5 = 1, 6 = 2, 7 = 3, 8 = 5, 9 = 8, 10 = 11 …
-    (ceil of the triangular numbers over two: same steady incentive, smaller
-    numbers to track physically), one row per length integer up to the max
-    snake length (20 → 68). */
-function triangularScoreTable(startLen = 15, maxLen = 30) {
+/** Optional refill helper: a halved-triangular climb (1, 2, 3, 5, 8 …) from
+    the starting length to the max — used by the "↺ triangular fill" button. */
+function triangularScoreTable(startLen = 4, maxLen = 15) {
   const rows = [{ min: 1, pts: 0 }];
   let tri = 0, step = 1;
   for (let L = startLen + 1; L <= maxLen; L++) { tri += step++; rows.push({ min: L, pts: Math.ceil(tri / 2) }); }
   return rows;
 }
-const DEFAULT_SCORE_TABLE = triangularScoreTable();
+
+/** Default score table: a hand-tuned stepped curve for lengths 5 through the
+    default max of 15 — 1, 2, 4, 6, 10, 15, 20, 25, 30 … and a 40-point
+    premium for dying at the full 15 (length 14 shares the 30 row). */
+const DEFAULT_SCORE_TABLE = [
+  { min: 1, pts: 0 },
+  { min: 5, pts: 1 }, { min: 6, pts: 2 }, { min: 7, pts: 4 }, { min: 8, pts: 6 },
+  { min: 9, pts: 10 }, { min: 10, pts: 15 }, { min: 11, pts: 20 }, { min: 12, pts: 25 },
+  { min: 13, pts: 30 }, { min: 15, pts: 40 },
+];
 
 /** Build the sidebar inputs from the schema (one-time). */
 function buildConfigPanel() {
@@ -2254,8 +2260,8 @@ function boot() {
 
   // regenerate the triangular score default from the current length fields
   $('btnTriangular').onclick = () => renderScoreTable(triangularScoreTable(
-    clamp(Math.round(Number($('cfg-startingLength').value) || 15), 2, 24),
-    clamp(Math.round(Number($('cfg-maxSnakeLength').value) || 20), 6, 64)));
+    clamp(Math.round(Number($('cfg-startingLength').value) || 4), 2, 15),
+    clamp(Math.round(Number($('cfg-maxSnakeLength').value) || 15), 6, 64)));
 
   // placement mode: click cells to build the spawn chain (head → … → tail)
   $('board').addEventListener('click', (ev) => {
