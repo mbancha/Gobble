@@ -41,6 +41,9 @@
       keep sliding. Collisions/food are evaluated per sub-step.
     • Turbo energy is checked at execution time; if the player can no longer
       afford it the move silently downgrades to a normal 1-cell move.
+    • A command strip needs a MINIMUM of 2 moves but may lock in fewer than
+      the max; unfilled slots become "stay" commands (dir: null) and the
+      snake simply holds its cell that tick (still a solid obstacle).
     • A dead snake's HEAD token exits the board, and only every OTHER body
       piece (starting right behind the head) flips into bounty food — half
       the chips, half the physical upkeep. The skipped pieces and any tail
@@ -349,7 +352,7 @@ const CONFIG_FIELDS = [
   { id: 'boardSize',           label: 'Board size (N×N)',        min: 8,  max: 24,  def: 12,  group: 'Board & players', hint: 'Grid dimensions' },
   { id: 'playerCount',         label: 'Players',                 min: 2,  max: 8,   def: 4,   group: 'Board & players', hint: '2–8 snakes' },
   { id: 'spawnLocationsCount', label: 'Food spawn nodes',        min: 4,  max: 64,  def: 30,  group: 'Board & players', hint: 'Numbered nodes where food tokens spawn' },
-  { id: 'startingLength',      label: 'Starting length',         min: 2,  max: 8,   def: 4,   group: 'Board & players', hint: 'Segments at spawn (incl. head)' },
+  { id: 'startingLength',      label: 'Starting length',         min: 2,  max: 24,  def: 15,  group: 'Board & players', hint: 'Segments at spawn (incl. head)' },
   // ── movement & turbo ──
   { id: 'commandSlots',        label: 'Command slots',           min: 2,  max: 8,   def: 6,   group: 'Movement & turbo', hint: 'Moves programmed per round' },
   { id: 'turboDistance',       label: 'Turbo distance',          min: 2,  max: 6,   def: 3,   group: 'Movement & turbo', hint: 'Cells covered by one turbo slide' },
@@ -363,7 +366,7 @@ const CONFIG_FIELDS = [
   { id: 'doubleFoodPercent',   label: '2× food share (%)',       min: 0,  max: 100, def: 20,  group: 'Food economy', hint: 'Share of neutral tokens granting double growth' },
   // ── match & guards ──
   { id: 'pointsToWin',         label: 'Points to win',           min: 10, max: 500, def: 150, group: 'Match rules', hint: 'Instant victory threshold' },
-  { id: 'maxSnakeLength',      label: 'Max snake length',        min: 6,  max: 64,  def: 20,  group: 'Match rules', hint: 'Body-piece supply cap' },
+  { id: 'maxSnakeLength',      label: 'Max snake length',        min: 6,  max: 64,  def: 30,  group: 'Match rules', hint: 'Body-piece supply cap' },
   { id: 'maxLengthFoodBonus',  label: 'Max-length food bonus',   min: 0,  max: 250, def: 60,  group: 'Match rules', hint: 'Points per growth unit a capped snake eats (2× = two units) — big by design, ≈ a full-snake bank' },
   { id: 'maxRounds',           label: 'Max rounds (guard)',      min: 10, max: 500, def: 100, group: 'Match rules', hint: 'Highest score wins at the cap' },
   { id: 'panicSeconds',        label: 'Panic timer (s)',         min: 5,  max: 60,  def: 15,  group: 'Match rules', hint: 'Countdown once the first player locks' },
@@ -374,7 +377,7 @@ const CONFIG_FIELDS = [
     (ceil of the triangular numbers over two: same steady incentive, smaller
     numbers to track physically), one row per length integer up to the max
     snake length (20 → 68). */
-function triangularScoreTable(startLen = 4, maxLen = 20) {
+function triangularScoreTable(startLen = 15, maxLen = 30) {
   const rows = [{ min: 1, pts: 0 }];
   let tri = 0, step = 1;
   for (let L = startLen + 1; L <= maxLen; L++) { tri += step++; rows.push({ min: L, pts: Math.ceil(tri / 2) }); }
@@ -473,7 +476,9 @@ function makeConfig(overrides = {}) {
   const cfg = {};
   for (const f of CONFIG_FIELDS) cfg[f.id] = f.def;
   cfg.lengthScoreTable = DEFAULT_SCORE_TABLE.map((r) => ({ ...r }));
-  return Object.assign(cfg, overrides);
+  Object.assign(cfg, overrides);
+  cfg.startingLength = Math.min(cfg.startingLength, cfg.maxSnakeLength);   // same clamp readConfig applies
+  return cfg;
 }
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -748,7 +753,9 @@ class Engine {
       if (!p.alive) continue;
       const cmd = (p.commands && p.commands[tickIdx]) || { dir: p.facing, turbo: false };
       let steps = 1, turbo = false;
-      if (cmd.turbo && p.energy >= this.cfg.turboEnergyCost) {
+      if (cmd.dir == null) {
+        steps = 0;                                   // stay put: player locked fewer moves
+      } else if (cmd.turbo && p.energy >= this.cfg.turboEnergyCost) {
         p.energy -= this.cfg.turboEnergyCost;
         steps = this.cfg.turboDistance;
         turbo = true;
@@ -1639,10 +1646,9 @@ const LIVE = {
   lockCurrentHuman(auto = false) {
     if (this.currentHuman === null) return;
     const p = this.engine.players[this.currentHuman];
-    const cmds = this.draft.map((d) => ({
-      dir: d.dir || lastDirOrFacing(this.draft, p),   // panic fill: repeat last chosen direction, else facing
-      turbo: d.turbo,
-    }));
+    // unset slots lock in as a "stay" (dir: null) — you may program FEWER
+    // than the max and simply stop in place for the rest of the round
+    const cmds = this.draft.map((d) => d.dir ? { dir: d.dir, turbo: d.turbo } : { dir: null, turbo: false });
     if (auto) log(`⏱ ${p.name} auto-locked by the panic timer`, p.color);
     this.currentHuman = null;
     this.lockPlayer(p, cmds);
@@ -1758,12 +1764,6 @@ const LIVE = {
   },
 };
 
-/* helper: last direction chosen in a draft, else the snake's facing */
-function lastDirOrFacing(draft, p) {
-  for (let i = draft.length - 1; i >= 0; i--) if (draft[i].dir) return draft[i].dir;
-  return p.facing;
-}
-
 /* ── panic timer ──────────────────────────────────────────────────────── */
 function startPanic(seconds) {
   stopPanic();
@@ -1800,14 +1800,15 @@ function stopPanic() {
 function renderHumanStrip() {
   const e = LIVE.engine;
   const p = e.players[LIVE.currentHuman];
-  const turboCount = LIVE.draft.filter((d) => d.turbo).length;
+  const draftMoveCount = LIVE.draft.filter((d) => d.dir).length;
+  const turboCount = LIVE.draft.filter((d) => d.dir && d.turbo).length;  // stays drop their turbo at lock
   const overBudget = turboCount * e.cfg.turboEnergyCost > p.energy;
   $('stripArea').innerHTML = `
     <div class="max-w-3xl mx-auto fade-in">
       <div class="flex items-center gap-2 mb-2 text-sm">
         <span class="w-3 h-3 rounded-full" style="background:${p.color}"></span>
         <b>${esc(p.name)}</b>
-        <span class="text-slate-400 text-xs">program your ${e.cfg.commandSlots} moves</span>
+        <span class="text-slate-400 text-xs">program 2–${e.cfg.commandSlots} moves · empty slots stop in place</span>
         <span class="ml-auto text-xs ${overBudget ? 'text-rose-400 font-bold' : 'text-slate-400'}">
           ⚡ energy ${p.energy}/${e.cfg.maxEnergyStorage} · turbo cost ${e.cfg.turboEnergyCost}
           ${overBudget ? ' — over budget: extra turbos will downgrade!' : ''}
@@ -1836,10 +1837,10 @@ function renderHumanStrip() {
           <p class="text-[10px] text-slate-500">arrows/WASD · T = turbo · ⌫ undo</p>
         </div>
         <div class="flex flex-col gap-1.5 ml-auto">
-          <button id="btnLock" ${LIVE.draft.every((d) => d.dir) ? '' : 'disabled'}
-            class="px-5 py-2.5 rounded-lg font-bold text-sm ${LIVE.draft.every((d) => d.dir)
+          <button id="btnLock" ${draftMoveCount >= 2 ? '' : 'disabled'}
+            class="px-5 py-2.5 rounded-lg font-bold text-sm ${draftMoveCount >= 2
               ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
-              : 'bg-slate-800 text-slate-600 cursor-not-allowed'}">🔒 LOCK IN</button>
+              : 'bg-slate-800 text-slate-600 cursor-not-allowed'}">🔒 LOCK IN${draftMoveCount >= 2 && draftMoveCount < e.cfg.commandSlots ? ` (${draftMoveCount})` : ''}</button>
           <button id="btnClearStrip" class="px-3 py-1 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 text-slate-400">clear</button>
         </div>
       </div>
@@ -1859,7 +1860,7 @@ function renderHumanStrip() {
       renderHumanStrip();
     };
   });
-  $('btnLock').onclick = () => LIVE.draft.every((d) => d.dir) && LIVE.lockCurrentHuman();
+  $('btnLock').onclick = () => LIVE.draft.filter((d) => d.dir).length >= 2 && LIVE.lockCurrentHuman();
   $('btnClearStrip').onclick = () => {
     LIVE.draft.forEach((d) => { d.dir = null; d.turbo = false; });
     LIVE.draftSel = 0;
@@ -1944,7 +1945,7 @@ function renderRevealStrip(tick) {
               return `<span class="w-7 h-7 rounded-md flex items-center justify-center text-sm font-bold relative
                          ${i === tick ? 'bg-slate-600 ring-1 ring-emerald-400' : 'bg-slate-800'}
                          ${dead ? 'opacity-25' : ''}">
-                        ${c ? DIRS[c.dir].glyph : '·'}
+                        ${c ? (c.dir ? DIRS[c.dir].glyph : '■') : '·'}
                         ${c?.turbo ? '<span class="absolute -top-1 -right-1 text-[9px]">⚡</span>' : ''}
                       </span>`;
             }).join('')}
@@ -1985,7 +1986,7 @@ document.addEventListener('keydown', (ev) => {
     LIVE.draftSel = i;
     renderHumanStrip();
   }
-  if (ev.key === 'Enter' && LIVE.draft.every((d) => d.dir)) {
+  if (ev.key === 'Enter' && LIVE.draft.filter((d) => d.dir).length >= 2) {
     ev.preventDefault();                 // don't re-activate a still-focused button
     LIVE.lockCurrentHuman();
   }
@@ -2253,7 +2254,7 @@ function boot() {
 
   // regenerate the triangular score default from the current length fields
   $('btnTriangular').onclick = () => renderScoreTable(triangularScoreTable(
-    clamp(Math.round(Number($('cfg-startingLength').value) || 4), 2, 8),
+    clamp(Math.round(Number($('cfg-startingLength').value) || 15), 2, 24),
     clamp(Math.round(Number($('cfg-maxSnakeLength').value) || 20), 6, 64)));
 
   // placement mode: click cells to build the spawn chain (head → … → tail)

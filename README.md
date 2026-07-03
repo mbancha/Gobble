@@ -3,8 +3,9 @@
 A playable prototype and data-simulation sandbox for a **simultaneous-programming snake
 board game**, contained in a single HTML file.
 
-Every round, all players secretly program a strip of moves (with optional energy-burning
-**Turbo** slides), then the strip resolves tick-by-tick simultaneously. Dying flips **every
+Every round, all players secretly program a strip of **2 to `commandSlots` moves** (with
+optional energy-burning **Turbo** slides) — lock in fewer than the max and your snake simply
+stops in place for the remaining ticks. The strip then resolves tick-by-tick simultaneously. Dying flips **every
 other body piece** into double-value bounty food and **banks points based on your length**
 (a halved-triangular table: 1, 2, 3, 5, 8 … per length step past your starting size). Dead
 snakes re-enter by **placing onto any 3 contiguous empty cells** — bends allowed, facing
