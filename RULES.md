@@ -8,8 +8,9 @@
 
 - **8 × Arrow card sets** — 6 arrow cards per player, in the player's colour.
 - **1 × Boost deck** — a shared stack of generic “×3” boost cards.
-- **40 × Tokens** — double-sided: a **number** on one face, its **content** on the other (14× +1 food, 8× +2 food, 12× +1 boost, 6× +2 boost).
-- **8 × Player boards** — your scoring ladder and turn reference.
+- **40 × Tokens** — double-sided: a **number** on one face, its **content** on the other (**20× food · 10× ×2 food · 10× ×2 energy**).
+- **8 × Player boards** — a length row to track your snake, with death points under each box, plus a quick reference.
+- **1 × Score track sheet** — a shared 0–200 track; every player moves a marker on it.
 - **The board** — a 12×12 grid with **40 numbered spaces** (any evenly-spread numbering works; the numbers are only used to place tokens).
 - **Snake pieces** — per player, 1 head marker + up to 12 body/tail segments in your colour (cubes, discs, or printed chips).
 - **A 15-second timer** — a phone timer or sand timer (the “panic timer”).
@@ -59,14 +60,14 @@ Lay **2 to 6 cards** face-down in a row in front of you — left card resolves f
 
 ### 2. Reveal & resolve
 
-Flip all rows face-up. Resolve **one slot at a time**, with **every snake moving together** on each slot. For each move, in this order:
+Flip all rows face-up. Resolve **one slot at a time**. Within each slot:
 
-1. **Tails clear.** Every moving snake lifts its **last tail piece** (unless it's about to eat this move).
-2. **Heads slide.** Each head moves 1 cell in its programmed direction (a boost slides 3 cells, checked one cell at a time).
-3. **Check crashes.** A head that enters a **wall**, **any snake's body**, or a **remaining tail** → that snake **dies**. If **two or more heads** enter the **same cell** on the same move → **all of them die**.
-4. **Eat & refill.** A surviving head that entered a **food** cell eats it (see below). Otherwise the lifted tail piece fills the gap behind the head, keeping the snake the same length.
+1. **Boosts go first.** Every boosting snake runs its full 3-cell slide, cell by cell (boosters move simultaneously with each other). A boost that crashes on the 1st or 2nd cell dies there and doesn't finish.
+2. **Then arrows.** Every arrow snake steps 1 cell, all together.
 
-A **boost** is resolved cell-by-cell: if you crash on the 1st or 2nd cell, you die there and don't finish the slide.
+For each move: **tails clear** (lift your last tail piece unless this move grows you) → **heads slide** → **check crashes** → **pick up tokens** (or drop the lifted tail piece into the gap behind the head).
+
+**Crashes:** a head that enters a **wall**, **any snake's body**, or a **remaining tail** → that snake dies — including moving into the **side of a stationary snake's head** (only the mover dies). **Both** snakes die only when they move **into the same square at the same time**. Because boosts resolve first, a booster claims a contested square — an arrow snake arriving a beat later just crashes into its side.
 
 ### 3. End of the round
 
@@ -76,16 +77,22 @@ A **boost** is resolved cell-by-cell: if you crash on the 1st or 2nd cell, you d
 
 ---
 
-## Food & boosts
+## Tokens & energy
 
-When your head enters a token's cell (and you didn't crash), you pick it up:
+When your head enters a token's cell (and you didn't crash), you pick it up. **Energy = boost cards** — every gain means drawing that many boost cards from the deck.
 
-- **+1 / +2 food** → your snake **grows** by that many segments. New pieces appear **behind the head** (they stack on the gap and unspool as you move).
-- **+1 / +2 boost** → **draw that many boost cards** from the deck into your hand. (Boost tokens never grow you — but they're always useful.)
+| Token | Growth | Energy |
+|---|---|---|
+| **Food** | +1 segment | +1 |
+| **×2 food** | +2 segments | +1 |
+| **×2 energy** | — | +2 |
+| **Bounty chip** (from a death) | +2 segments | +1 |
+
+New segments appear **behind the head** (they stack on the gap and unspool as you move). A pickup that doesn't grow you resolves like a normal move — your tail piece fills the gap.
 
 ### At maximum length (13)
 
-Your snake **stops growing**, but the game **doesn't** stop for you. Every unit of **food** you eat now scores **+10 points immediately** instead of growing you (so a **+2 food = +20 points**). Boost tokens still give you cards.
+Your snake **stops growing**, but the game **doesn't** stop for you. Every unit of **food** you eat now scores **+10 points immediately** instead of growing you (so a **+2 food = +20 points**, a **bounty chip = +20**). ×2 energy tokens still pay energy.
 
 > This is the engine of the game: once you're maxed, staying alive and eating is pure profit. Crashing on purpose to reset is almost always a mistake.
 
@@ -101,7 +108,7 @@ When a snake dies:
    |---|---|---|---|---|---|---|---|---|---|---|
    | Points | 0 | 1 | 2 | 4 | 6 | 10 | 15 | 20 | 25 | **30** |
 
-2. **Drop bounty.** The head leaves the board. Flip **every other body segment** (starting with the piece right behind the head) to its **bounty** side — these become **player-coloured food worth ×2** (they grow +2, or score +20 at max length, when eaten by anyone). Remove the segments in between.
+2. **Drop bounty.** The head leaves the board. Flip **every other body segment** (starting with the piece right behind the head) to its **bounty** side — these act like **×2 food** (+2 growth, +1 energy; +20 points at max length) for whoever eats them. Remove the segments in between.
 3. **Respawn** next round: place the snake at length **3** on any **3 contiguous empty cells**, head not facing food. (If the board is completely jammed, sit out one round.)
 
 ---
@@ -129,7 +136,7 @@ Because the trigger only *starts* the count, the player who crossed the line doe
 | Maximum length | 13 | Food converts to +10 pts each above this |
 | Boost distance | 3 cells | |
 | Target score | 150 | First to trigger ends the game |
-| Tokens | 40 | 14× +1 food · 8× +2 food · 12× +1 boost · 6× +2 boost |
+| Tokens | 40 | 20× food · 10× ×2 food · 10× ×2 energy |
 | Starting food on board | 20 | Rest is the reserve |
 | Bounty value | ×2 | Player-coloured food from a death |
 
@@ -139,7 +146,7 @@ Because the trigger only *starts* the count, the player who crossed the line doe
 
 1. **Program** 2–6 cards face-down · **arrow = 1**, **boost = 3** (discard).
 2. First lock starts the **15-second** timer; everyone locks when it ends.
-3. **Reveal** and resolve slot by slot, all together: **tails clear → heads slide → crashes → eat**.
-4. **Food** grows you (+1/+2); **boost tokens** draw you cards (+1/+2). At **max length 13**, food = **+10 points each**.
+3. **Reveal** and resolve slot by slot: **boosts slide first**, then all arrows step together — tails clear → heads slide → crashes → pick up.
+4. **Food** grows you (+1/+2) and pays **+1 energy**; **×2 energy** pays **+2** (energy = boost cards). At **max length 13**, food = **+10 points each**.
 5. **Crash** (wall / body / two heads) = **death**: score your length, flip **every other** segment to ×2 bounty, respawn at length 3.
 6. **Refill** half the reserve each round. **First to 150** ends it; **living snakes cash out**; **highest total wins**.
