@@ -6,8 +6,9 @@ board game**, contained in a single HTML file.
 Every round, all players secretly program a strip of **2 to `commandSlots` cards** — arrows
 (move 1) and **Boost** cards (spend a card to slide 3) — and lock in fewer than the max to
 stop in place for the remaining ticks. The strip then resolves tick-by-tick simultaneously.
-Snakes start at length 3. **Food tokens grow you (+1/+2); boost tokens draw boost cards
-(+1/+2).** Dying flips **every other body piece** into ×2 bounty food and **banks points by
+Snakes start at length 3. **Every token pays energy (boost cards): food = +1 grow/+1 energy,
+×2 food = +2 grow/+1 energy, ×2 energy = +2 energy (no growth).** Boosts resolve before
+arrow moves each slot, so a booster claims contested squares first. Dying flips **every other body piece** into ×2 bounty food and **banks points by
 length** (a stepped ladder: 5→1, 6→2 … 13→30). Dead snakes re-enter by **placing onto any 3
 contiguous empty cells** — bends allowed, facing derives from the neck, and the head can't
 face food. At **max length (13)** the snake stops growing and each food eaten instead scores
@@ -32,7 +33,7 @@ fully local.)
   deaths per player with wall / head-to-head / body cause breakdown, boost efficiency
   (cards spent vs. boost crashes), and end-of-game token density.
 - **Variable control panel** — board size, player count, command slots, starting length,
-  boost distance, starting & max boost cards, total/starting tokens, boost-token & 2×
+  boost distance, starting & max energy, total/starting tokens, ×2 food & ×2 energy
   shares, token spawn nodes, points to win, max snake length, max-length food bonus, and an
   editable length→points score table with a one-click triangular refill.
 - **Bots** — lightweight non-cheating heuristic: self-preservation first, then Manhattan
