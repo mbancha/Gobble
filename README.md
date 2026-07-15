@@ -3,17 +3,17 @@
 A playable prototype and data-simulation sandbox for a **simultaneous-programming snake
 board game**, contained in a single HTML file.
 
-Every round, all players secretly program a strip of **2 to `commandSlots` moves** (with
-optional energy-burning **Turbo** slides) — lock in fewer than the max and your snake simply
-stops in place for the remaining ticks. The strip then resolves tick-by-tick simultaneously. Dying flips **every
-other body piece** into double-value bounty food and **banks points based on your length**
-(a stepped table: 1, 2, 4, 6, 10 … up to a 40-point premium at max length). Dead
-snakes re-enter by **placing onto any 3 contiguous empty cells** — bends allowed, facing
-derives from the neck, and the head can't face food. A fifth of the food supply are
-**2× tokens** worth double growth *and* double energy; snakes at max length convert every
-extra growth unit into a **big instant bonus** (≈ a full-snake bank per food), so the
-dominant plan is to get huge and keep eating. When someone reaches the target score every
-living snake cashes out its length — the highest **total** wins.
+Every round, all players secretly program a strip of **2 to `commandSlots` cards** — arrows
+(move 1) and **Boost** cards (spend a card to slide 3) — and lock in fewer than the max to
+stop in place for the remaining ticks. The strip then resolves tick-by-tick simultaneously.
+Snakes start at length 3. **Food tokens grow you (+1/+2); boost tokens draw boost cards
+(+1/+2).** Dying flips **every other body piece** into ×2 bounty food and **banks points by
+length** (a stepped ladder: 5→1, 6→2 … 13→30). Dead snakes re-enter by **placing onto any 3
+contiguous empty cells** — bends allowed, facing derives from the neck, and the head can't
+face food. At **max length (13)** the snake stops growing and each food eaten instead scores
+**+10 points on the spot** (a +2 food = +20), so the dominant plan is to get huge and keep
+eating. When someone reaches the target score every living snake cashes out its length — the
+highest **total** wins. Mirrors the physical prototype in `RULES.md`.
 
 ## Run it
 
@@ -25,20 +25,20 @@ fully local.)
 
 - **Live play** — human vs. bots, hot-seat pass-and-play (2–8 seats, any human/bot mix),
   or all-bot spectator games, with an animated board, click-to-place respawns, per-slot
-  Turbo toggles, WebAudio sound effects (mutable, zero assets), and the 15-second
-  **panic timer** that starts the moment the first player locks in.
+  **Boost** toggles (spending boost cards), WebAudio sound effects (mutable, zero assets),
+  and the 15-second **panic timer** that starts the moment the first player locks in.
 - **Simulation Mode** — a headless toggle that hides the board and batch-runs hundreds of
   bot games in milliseconds, then reports: average game length, score distribution,
-  deaths per player with wall / head-to-head / body cause breakdown, turbo efficiency
-  (turbo moves vs. turbo crashes), and end-of-game food density.
+  deaths per player with wall / head-to-head / body cause breakdown, boost efficiency
+  (cards spent vs. boost crashes), and end-of-game token density.
 - **Variable control panel** — board size, player count, command slots, starting length,
-  turbo distance/cost, food & bounty energy yields, total/starting food tokens, 2× food
-  share, food spawn node count, energy cap, points to win, max-length food bonus, and an
+  boost distance, starting & max boost cards, total/starting tokens, boost-token & 2×
+  shares, token spawn nodes, points to win, max snake length, max-length food bonus, and an
   editable length→points score table with a one-click triangular refill.
 - **Bots** — lightweight non-cheating heuristic: self-preservation first, then Manhattan
-  food-seeking, a 25% turbo chance when the lane is clear, and anti-enclosure spawn
+  token-seeking, a 25% boost chance when the lane is clear, and anti-enclosure spawn
   placement (flood-fill openness scoring).
 
-Where the tabletop rules need a referee (simultaneous swaps, turbo sub-steps, spawning
+Where the tabletop rules need a referee (simultaneous swaps, boost sub-steps, spawning
 onto food, etc.), the rulings are documented in the header comment of `index.html`.
 A console/test API is exposed as `window.Gobble` (`runBatch`, `Engine`, `Bot`, …).

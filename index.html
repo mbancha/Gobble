@@ -19,7 +19,7 @@
     §1  Config schema + control panel builder
     §2  Spawn-node distribution (farthest-point sampling)
     §3  Game engine (pure & headless — no DOM references)
-    §4  Bot AI (self-preservation → food seeking → 25% turbo)
+    §4  Bot AI (self-preservation → token seeking → 25% boost)
     §5  Headless game runner + batch aggregation
     §6  Canvas renderer
     §7  Live game controller (programming / panic timer / playback phases)
@@ -33,14 +33,16 @@
       on that same tick. Two snakes swapping head positions therefore both die.
       (Implemented naturally: collisions are evaluated against pre-slide bodies
       minus cleared tails.)
-    • A stationary snake's head (e.g. during someone else's turbo sub-step)
+    • A stationary snake's head (e.g. during someone else's boost sub-step)
       counts as a body obstacle — "head-to-head" requires BOTH heads to enter
       the same cell on the same sub-step.
-    • Turbo is resolved as sub-steps: on sub-step 1 every mover advances one
-      cell simultaneously; on sub-steps 2..turboDistance only turbo snakes
-      keep sliding. Collisions/food are evaluated per sub-step.
-    • Turbo energy is checked at execution time; if the player can no longer
-      afford it the move silently downgrades to a normal 1-cell move.
+    • BOOST is resolved as sub-steps: on sub-step 1 every mover advances one
+      cell simultaneously; on sub-steps 2..boostDistance only boosting snakes
+      keep sliding. Collisions/tokens are evaluated per sub-step.
+    • A boost slot spends ONE boost card at execution time; with no card in
+      hand the move silently downgrades to a normal 1-cell move. Players start
+      with `startingBoostCards` and draw more from boost tokens (capped at
+      maxBoostCards). Boost cards persist through death.
     • A command strip needs a MINIMUM of 2 moves but may lock in fewer than
       the max; unfilled slots become "stay" commands (dir: null) and the
       snake simply holds its cell that tick (still a solid obstacle).
@@ -48,8 +50,11 @@
       piece (starting right behind the head) flips into bounty food — half
       the chips, half the physical upkeep. The skipped pieces and any tail
       piece already "in hand" (cleared this sub-step) exit with the player.
-    • Eaten NEUTRAL tokens return to the reserve pool (they can respawn later);
-      eaten BOUNTY chips leave the game for good.
+    • Tokens are FOOD (grow +1/+2) or BOOST (draw 1/2 boost cards). Eaten
+      food/boost tokens return to the reserve pool (they can respawn later);
+      BOUNTY chips (from a death, worth 2 growth) leave the game once eaten.
+      Only food/bounty tokens grow you — a boost token clears the tail like a
+      normal move.
     • End-of-round spawning rolls ceil(reserve/2) tokens so a lone last token
       still gets a chance.
     • Respawn placement: a returning snake is placed on ANY 3 contiguous
@@ -63,15 +68,14 @@
       moves. Spawn NODES are now purely food real-estate. Dead players place
       in random order each round; a fully jammed board means sitting the
       round out.
-    • 2× tokens: a configurable share of the neutral supply (default 20%)
-      grants TWO growth units — the second piece stacks behind the head on
-      the gap cell, just like the first — and DOUBLE energy.
+    • +2 tokens: a configurable share of each kind (default 35%). A +2 food
+      grows TWO segments (the second piece stacks behind the head on the gap
+      cell, just like the first); a +2 boost draws two cards.
     • Snake growth is capped by maxSnakeLength — the game does NOT end there.
-      Every growth unit a capped snake can't fit converts on the spot into
-      maxLengthFoodBonus points (a 2× token = two units, i.e. double bonus).
-      The default bonus is deliberately BIG (≈ a full-snake death bank), so
-      the dominant line is always: grow to max, stay alive, keep eating —
-      resetting yourself throws that engine away.
+      Every food unit a capped snake can't fit converts on the spot into
+      maxLengthFoodBonus points (a +2 food at the cap = +2×bonus). Staying
+      maxed and eating is pure profit, so the dominant line is grow to max,
+      stay alive, keep eating — resetting yourself throws that engine away.
     • Reaching pointsToWin ends the game instantly — then every LIVING snake
       banks its current length through the score table (the final cash-out),
       and TOTALS decide the winner, so the trigger player doesn't always win.
@@ -351,44 +355,42 @@ const CONFIG_FIELDS = [
   // ── board & players ──
   { id: 'boardSize',           label: 'Board size (N×N)',        min: 8,  max: 24,  def: 12,  group: 'Board & players', hint: 'Grid dimensions' },
   { id: 'playerCount',         label: 'Players',                 min: 2,  max: 8,   def: 4,   group: 'Board & players', hint: '2–8 snakes' },
-  { id: 'spawnLocationsCount', label: 'Food spawn nodes',        min: 4,  max: 64,  def: 30,  group: 'Board & players', hint: 'Numbered nodes where food tokens spawn' },
-  { id: 'startingLength',      label: 'Starting length',         min: 2,  max: 15,  def: 4,   group: 'Board & players', hint: 'Segments at spawn (incl. head)' },
-  // ── movement & turbo ──
-  { id: 'commandSlots',        label: 'Command slots',           min: 2,  max: 8,   def: 6,   group: 'Movement & turbo', hint: 'Moves programmed per round' },
-  { id: 'turboDistance',       label: 'Turbo distance',          min: 2,  max: 6,   def: 3,   group: 'Movement & turbo', hint: 'Cells covered by one turbo slide' },
-  { id: 'turboEnergyCost',     label: 'Turbo energy cost',       min: 0,  max: 6,   def: 2,   group: 'Movement & turbo', hint: 'Energy spent per turbo slot' },
-  { id: 'maxEnergyStorage',    label: 'Max energy storage',      min: 1,  max: 20,  def: 6,   group: 'Movement & turbo', hint: 'Energy hoard cap' },
-  // ── food economy ──
-  { id: 'totalFoodTokens',     label: 'Total food tokens',       min: 5,  max: 120, def: 40,  group: 'Food economy', hint: 'Neutral tokens in the whole system' },
-  { id: 'startingFoodInPlay',  label: 'Starting food in play',   min: 0,  max: 120, def: 20,  group: 'Food economy', hint: 'Neutral tokens on the board at start' },
-  { id: 'foodEnergyYield',     label: 'Food energy yield',       min: 1,  max: 8,   def: 1,   group: 'Food economy', hint: 'Energy per neutral token (2× token = double)' },
-  { id: 'bountyEnergyYield',   label: 'Bounty energy yield',     min: 1,  max: 12,  def: 2,   group: 'Food economy', hint: 'Energy per dead-snake chip' },
-  { id: 'doubleFoodPercent',   label: '2× food share (%)',       min: 0,  max: 100, def: 20,  group: 'Food economy', hint: 'Share of neutral tokens granting double growth' },
+  { id: 'spawnLocationsCount', label: 'Token spawn nodes',       min: 4,  max: 64,  def: 30,  group: 'Board & players', hint: 'Numbered nodes where tokens spawn' },
+  { id: 'startingLength',      label: 'Starting length',         min: 2,  max: 15,  def: 3,   group: 'Board & players', hint: 'Segments at spawn (incl. head)' },
+  // ── movement & boost ──
+  { id: 'commandSlots',        label: 'Command slots',           min: 2,  max: 8,   def: 6,   group: 'Movement & boost', hint: 'Cards programmed per round (min 2)' },
+  { id: 'boostDistance',       label: 'Boost distance',          min: 2,  max: 6,   def: 3,   group: 'Movement & boost', hint: 'Cells covered by one boost card slide' },
+  { id: 'startingBoostCards',  label: 'Starting boost cards',    min: 0,  max: 10,  def: 1,   group: 'Movement & boost', hint: 'Boost cards each player begins with' },
+  { id: 'maxBoostCards',       label: 'Max boost cards in hand', min: 1,  max: 20,  def: 6,   group: 'Movement & boost', hint: 'Cap on hoarded boost cards' },
+  // ── token economy ──
+  { id: 'totalFoodTokens',     label: 'Total tokens',            min: 5,  max: 120, def: 40,  group: 'Token economy', hint: 'Food + boost tokens in the whole system' },
+  { id: 'startingFoodInPlay',  label: 'Starting tokens on board',min: 0,  max: 120, def: 20,  group: 'Token economy', hint: 'Tokens dealt to the board at start' },
+  { id: 'boostTokenPercent',   label: 'Boost token share (%)',   min: 0,  max: 100, def: 45,  group: 'Token economy', hint: 'Share of tokens that are boost (rest are food)' },
+  { id: 'doubleTokenPercent',  label: '2× token share (%)',      min: 0,  max: 100, def: 35,  group: 'Token economy', hint: 'Share of each kind worth 2 (grow 2 / draw 2)' },
   // ── match & guards ──
   { id: 'pointsToWin',         label: 'Points to win',           min: 10, max: 500, def: 150, group: 'Match rules', hint: 'Instant victory threshold' },
-  { id: 'maxSnakeLength',      label: 'Max snake length',        min: 6,  max: 64,  def: 15,  group: 'Match rules', hint: 'Body-piece supply cap' },
-  { id: 'maxLengthFoodBonus',  label: 'Max-length food bonus',   min: 0,  max: 250, def: 30,  group: 'Match rules', hint: 'Points per growth unit a capped snake eats (2× = two units) — big by design, ≈ a full-snake bank' },
+  { id: 'maxSnakeLength',      label: 'Max snake length',        min: 6,  max: 64,  def: 13,  group: 'Match rules', hint: 'Body-piece supply cap' },
+  { id: 'maxLengthFoodBonus',  label: 'Max-length food bonus',   min: 0,  max: 250, def: 10,  group: 'Match rules', hint: 'Points per food unit a capped snake eats (2× food = +20)' },
   { id: 'maxRounds',           label: 'Max rounds (guard)',      min: 10, max: 500, def: 100, group: 'Match rules', hint: 'Highest score wins at the cap' },
   { id: 'panicSeconds',        label: 'Panic timer (s)',         min: 5,  max: 60,  def: 15,  group: 'Match rules', hint: 'Countdown once the first player locks' },
 ];
 
 /** Optional refill helper: a halved-triangular climb (1, 2, 3, 5, 8 …) from
     the starting length to the max — used by the "↺ triangular fill" button. */
-function triangularScoreTable(startLen = 4, maxLen = 15) {
+function triangularScoreTable(startLen = 3, maxLen = 13) {
   const rows = [{ min: 1, pts: 0 }];
   let tri = 0, step = 1;
   for (let L = startLen + 1; L <= maxLen; L++) { tri += step++; rows.push({ min: L, pts: Math.ceil(tri / 2) }); }
   return rows;
 }
 
-/** Default score table: a hand-tuned stepped curve for lengths 5 through the
-    default max of 15 — 1, 2, 4, 6, 10, 15, 20, 25, 30 … and a 40-point
-    premium for dying at the full 15 (length 14 shares the 30 row). */
+/** Default score table: the physical prototype's stepped ladder for lengths 5
+    through the default max of 13 — 1, 2, 4, 6, 10, 15, 20, 25, 30. */
 const DEFAULT_SCORE_TABLE = [
   { min: 1, pts: 0 },
   { min: 5, pts: 1 }, { min: 6, pts: 2 }, { min: 7, pts: 4 }, { min: 8, pts: 6 },
   { min: 9, pts: 10 }, { min: 10, pts: 15 }, { min: 11, pts: 20 }, { min: 12, pts: 25 },
-  { min: 13, pts: 30 }, { min: 15, pts: 40 },
+  { min: 13, pts: 30 },
 ];
 
 /** Build the sidebar inputs from the schema (one-time). */
@@ -522,9 +524,9 @@ function computeSpawnNodes(N, count) {
 
    Tick resolution API (lets the live UI animate every sub-step while the
    headless runner burns through them synchronously):
-     beginTick(t)  → { maxSteps, acts }   turbo energy is paid here
+     beginTick(t)  → { maxSteps, acts }   a boost card is spent here
      stepTick()    → { events, more }     one simultaneous sub-step
-     finishTick()  → { events }           turbo-crash stats + win check
+     finishTick()  → { events }           boost-crash stats + win check
      nextRound()   → { events }           food respawn, round++ / respawns
    ════════════════════════════════════════════════════════════════════════ */
 class Engine {
@@ -546,12 +548,12 @@ class Engine {
     // aggregate stats (consumed by the simulation dashboard)
     this.stats = {
       deathsByCause: { wall: 0, head: 0, body: 0 },
-      turboExecuted: 0,
-      turboCrashes: 0,
+      boostExecuted: 0,        // boost cards spent
+      boostCrashes: 0,         // boost slides that ended in a crash
       bonusPoints: 0,          // points from food eaten at max length
     };
 
-    // players double as their snakes (score/energy persist through death)
+    // players double as their snakes (score/boost hand persist through death)
     this.players = seats.map((s, i) => ({
       seat: i,
       name: s.name || `P${i + 1}`,
@@ -559,30 +561,37 @@ class Engine {
       color: SEAT_COLORS[i].bright,
       chartColor: SEAT_COLORS[i].chart,
       score: 0,
-      energy: 0,
+      boosts: cfg.startingBoostCards,   // boost cards in hand (was: energy)
       deaths: 0,
       alive: false,
       body: [],                     // [{x,y}, ...] head first; may contain stacked duplicates right after spawning
       facing: 'up',
-      commands: null,               // [{dir, turbo}] per round
+      commands: null,               // [{dir, boost}] per round
       locked: false,
     }));
 
-    // fixed spawn nodes, shared by player respawns and food placement
+    // fixed spawn nodes, shared by player respawns and token placement
     this.spawnNodes = computeSpawnNodes(this.N, cfg.spawnLocationsCount);
 
-    // Neutral food tokens: each token is permanently assigned one numbered
-    // spawn node (shuffled round-robin so nodes are used evenly). A share of
-    // the supply is minted as "2×" tokens that grant double growth.
+    // Token pool: each token is permanently assigned one numbered spawn node
+    // (shuffled round-robin so nodes are used evenly), and is minted as either
+    // FOOD (grows the snake) or BOOST (draws boost cards), each worth 1 or 2.
     const nodeOrder = rngShuffle(rng, this.spawnNodes.map((_, i) => i));
-    const nDoubles = Math.round(cfg.totalFoodTokens * (cfg.doubleFoodPercent ?? 20) / 100);
+    const total = cfg.totalFoodTokens;
+    const nBoost = Math.round(total * (cfg.boostTokenPercent ?? 45) / 100);
+    const nFood = total - nBoost;
+    const n2food = Math.round(nFood * (cfg.doubleTokenPercent ?? 35) / 100);
+    const n2boost = Math.round(nBoost * (cfg.doubleTokenPercent ?? 35) / 100);
     this.reserve = [];              // tokens currently OFF the board
-    for (let id = 0; id < cfg.totalFoodTokens; id++) {
-      this.reserve.push({ id, nodeIdx: nodeOrder[id % nodeOrder.length], double: id < nDoubles });
-    }
+    let id = 0;
+    const mint = (n, kind, value) => { for (let i = 0; i < n; i++) this.reserve.push({ id: id++, kind, value }); };
+    mint(nFood - n2food, 'food', 1);  mint(n2food, 'food', 2);
+    mint(nBoost - n2boost, 'boost', 1); mint(n2boost, 'boost', 2);
+    this.reserve.forEach((t, i) => { t.nodeIdx = nodeOrder[i % nodeOrder.length]; });
     rngShuffle(rng, this.reserve);
 
-    this.food = new Map();          // cellKey → {type:'neutral'|'bounty', token?, ownerSeat?}
+    // cellKey → { kind:'food'|'boost'|'bounty', value, token?, ownerSeat? }
+    this.food = new Map();
   }
 
   /* ── setup ─────────────────────────────────────────────────────────── */
@@ -629,7 +638,7 @@ class Engine {
     const node = this.spawnNodes[tok.nodeIdx];
     const k = cellKey(node.x, node.y);
     if (this.food.has(k) || this.occupancy().has(k)) return false;
-    this.food.set(k, { type: 'neutral', token: tok });
+    this.food.set(k, { kind: tok.kind, value: tok.value, token: tok });
     return true;
   }
 
@@ -750,24 +759,25 @@ class Engine {
   /* ── tick resolution ───────────────────────────────────────────────── */
 
   /**
-   * Start resolving command slot `tickIdx`. Turbo energy is paid here; a
-   * turbo the player can no longer afford downgrades to a normal move.
+   * Start resolving command slot `tickIdx`. A boost slot spends ONE boost
+   * card to slide `boostDistance` cells; a boost the player can't afford
+   * (no card in hand) downgrades to a normal 1-cell move.
    */
   beginTick(tickIdx) {
     const acts = [];
     for (const p of this.players) {
       if (!p.alive) continue;
-      const cmd = (p.commands && p.commands[tickIdx]) || { dir: p.facing, turbo: false };
-      let steps = 1, turbo = false;
+      const cmd = (p.commands && p.commands[tickIdx]) || { dir: p.facing, boost: false };
+      let steps = 1, boost = false;
       if (cmd.dir == null) {
         steps = 0;                                   // stay put: player locked fewer moves
-      } else if (cmd.turbo && p.energy >= this.cfg.turboEnergyCost) {
-        p.energy -= this.cfg.turboEnergyCost;
-        steps = this.cfg.turboDistance;
-        turbo = true;
-        this.stats.turboExecuted++;
+      } else if (cmd.boost && p.boosts >= 1) {
+        p.boosts -= 1;                               // spend a boost card
+        steps = this.cfg.boostDistance;
+        boost = true;
+        this.stats.boostExecuted++;
       }
-      acts.push({ p, dir: cmd.dir, steps, turbo });
+      acts.push({ p, dir: cmd.dir, steps, boost });
     }
     this._tick = { idx: tickIdx, acts, step: 0, maxSteps: acts.reduce((m, a) => Math.max(m, a.steps), 0) };
     return { maxSteps: this._tick.maxSteps, acts };
@@ -783,11 +793,11 @@ class Engine {
     return { events, more: T.step < T.maxSteps };
   }
 
-  /** Close out the tick: turbo-crash bookkeeping + instant-win check. */
+  /** Close out the tick: boost-crash bookkeeping + instant-win check. */
   finishTick() {
     const T = this._tick; this._tick = null;
     const events = [];
-    for (const a of T.acts) if (a.turbo && !a.p.alive) this.stats.turboCrashes++;
+    for (const a of T.acts) if (a.boost && !a.p.alive) this.stats.boostCrashes++;
     // Instant end the moment a score crosses the line (mid-round counts);
     // endGame then runs the living-snake cash-out and compares totals.
     if (this.players.some((p) => p.score >= this.cfg.pointsToWin)) {
@@ -799,24 +809,32 @@ class Engine {
   /**
    * One simultaneous sub-step for `movers` [{p, dir}] — the heart of the
    * rules. Order of operations exactly per the design:
-   *   1. tails clear (unless that snake is about to eat)
+   *   1. tails clear (unless that snake is about to GROW this move)
    *   2. heads slide (targets computed)
    *   3. collision checks vs. pre-slide bodies (gap cells stay solid) and
    *      simultaneous head-to-head
-   *   4. food & tail resolution for survivors
+   *   4. token & tail resolution for survivors
    */
   resolveSubstep(movers) {
     const events = [];
 
-    // (1)+(2) compute targets & who is about to eat
+    // (1)+(2) compute targets & how many segments this move will grow.
+    // Only FOOD/BOUNTY tokens (with room under the cap) grow you; boost
+    // tokens draw cards but don't grow, so their tail still clears.
     for (const m of movers) {
       const d = DIRS[m.dir];
       m.tx = m.p.body[0].x + d.dx;
       m.ty = m.p.body[0].y + d.dy;
       m.inB = this.inBounds(m.tx, m.ty);
-      m.willEat = m.inB && this.food.has(cellKey(m.tx, m.ty));
+      m.token = m.inB ? this.food.get(cellKey(m.tx, m.ty)) : null;
+      let grow = 0;
+      if (m.token && (m.token.kind === 'food' || m.token.kind === 'bounty')) {
+        const room = this.cfg.maxSnakeLength - m.p.body.length;
+        grow = Math.max(0, Math.min(m.token.value, room));
+      }
+      m.growUnits = grow;
       m.cleared = null;
-      if (!m.willEat) m.cleared = m.p.body.pop();   // tail piece "in hand"
+      if (grow === 0) m.cleared = m.p.body.pop();   // no growth → tail clears
     }
 
     // (3a) occupancy AFTER tail clears — old head cells remain solid, which
@@ -845,46 +863,39 @@ class Engine {
       this.killSnake(m.p, m.deathCause, m.cleared, events, { x: m.tx, y: m.ty });
     }
 
-    // (4b) survivors: slide the head, then eat or re-place the tail piece
+    // (4b) survivors: slide the head, then resolve any token entered
     for (const m of movers) {
       if (m.deathCause) continue;
       const p = m.p;
       p.body.unshift({ x: m.tx, y: m.ty });
       p.facing = m.dir;
-      if (m.willEat) {
-        const k = cellKey(m.tx, m.ty);
-        const f = this.food.get(k);
-        this.food.delete(k);
-        let units = 1;                                      // growth units carried by this food
-        if (f.type === 'neutral') {
-          this.reserve.push(f.token);                       // eaten tokens rejoin the reserve pool
-          if (f.token.double) units = 2;                    // 2× token: double growth AND double energy
-          const gain = this.cfg.foodEnergyYield * (f.token.double ? 2 : 1);
-          p.energy = Math.min(this.cfg.maxEnergyStorage, p.energy + gain);
-        } else {
-          p.energy = Math.min(this.cfg.maxEnergyStorage, p.energy + this.cfg.bountyEnergyYield);
-        }
-        // Growth: the unshifted head is unit #1; a 2× token adds one more
-        // piece behind the head (stacked on the gap cell, un-stacking as the
-        // snake moves). Units that don't fit under maxSnakeLength convert to
-        // immediate bonus points instead — the game does not end at the cap.
-        let bonusUnits = 0;
-        if (p.body.length > this.cfg.maxSnakeLength) { p.body.pop(); bonusUnits++; }
-        for (let u = 1; u < units; u++) {
-          if (p.body.length < this.cfg.maxSnakeLength) p.body.splice(2, 0, { x: p.body[1].x, y: p.body[1].y });
-          else bonusUnits++;
-        }
-        if (bonusUnits > 0) {
-          const pts = bonusUnits * this.cfg.maxLengthFoodBonus;
-          p.score += pts;
-          this.stats.bonusPoints += pts;
-          if (pts > 0) events.push({ t: 'bonus', seat: p.seat, pts, at: { x: m.tx, y: m.ty } });
-        }
-        events.push({ t: 'eat', seat: p.seat, at: { x: m.tx, y: m.ty }, foodType: f.type,
-                      double: f.type === 'neutral' && !!f.token.double });
+      const f = m.token;
+      if (!f) continue;                                     // no token here → tail already re-placed
+      const k = cellKey(m.tx, m.ty);
+      this.food.delete(k);
+      const at = { x: m.tx, y: m.ty };
+
+      if (f.kind === 'boost') {
+        // Boost token: draw `value` boost cards (no growth; tail cleared).
+        this.reserve.push(f.token);
+        p.boosts = Math.min(this.cfg.maxBoostCards, p.boosts + f.value);
+        events.push({ t: 'boostDraw', seat: p.seat, at, value: f.value });
+        continue;
       }
-      // non-eaters: the cleared tail piece fills the gap behind the head —
-      // in cell terms the swap (+newHead, −oldTail) is already complete.
+
+      // FOOD / BOUNTY: grow by growUnits (head unshift is unit #1; each extra
+      // stacks behind the head). Units that don't fit the cap convert to
+      // immediate points; a snake AT the cap scores its full value.
+      if (f.kind === 'food') this.reserve.push(f.token);    // food tokens rejoin the pool; bounty leaves for good
+      for (let u = 1; u < m.growUnits; u++) p.body.splice(2, 0, { x: p.body[1].x, y: p.body[1].y });
+      const pointUnits = f.value - m.growUnits;             // overflow at/near the cap
+      if (pointUnits > 0) {
+        const pts = pointUnits * this.cfg.maxLengthFoodBonus;
+        p.score += pts;
+        this.stats.bonusPoints += pts;
+        if (pts > 0) events.push({ t: 'bonus', seat: p.seat, pts, at });
+      }
+      events.push({ t: 'eat', seat: p.seat, at, kind: f.kind, value: f.value });
     }
     return events;
   }
@@ -906,7 +917,7 @@ class Engine {
       const k = cellKey(c.x, c.y);
       if (seen.has(k) || this.food.has(k)) return;     // dedupe stacked spawn cells
       seen.add(k);
-      this.food.set(k, { type: 'bounty', ownerSeat: p.seat });
+      this.food.set(k, { kind: 'bounty', value: 2, ownerSeat: p.seat });
       chips.push({ ...c });
     });
     p.alive = false;
@@ -969,10 +980,10 @@ class Engine {
     return { events };
   }
 
-  /* ── quick board metrics (simulation food density) ─────────────────── */
+  /* ── quick board metrics (simulation token density) ────────────────── */
   foodCounts() {
-    let neutral = 0, bounty = 0;
-    for (const f of this.food.values()) f.type === 'neutral' ? neutral++ : bounty++;
+    let neutral = 0, bounty = 0;   // "neutral" = any pool token (food or boost) on the board
+    for (const f of this.food.values()) f.kind === 'bounty' ? bounty++ : neutral++;
     return { neutral, bounty };
   }
 }
@@ -985,8 +996,8 @@ class Engine {
         on the upcoming tick (own tail cell is exempt — it clears).
      2. FOOD SEEKING: among safe moves pick the one that minimizes Manhattan
         distance to the nearest remaining food chip (neutral or bounty).
-     3. TURBO: with enough energy and a snake-free straight line for the full
-        turboDistance, a flat 25% chance to flag the slot as turbo.
+     3. BOOST: holding ≥1 boost card and a snake-free straight line for the
+        full boostDistance, a flat 25% chance to flag the slot as a boost.
    ════════════════════════════════════════════════════════════════════════ */
 const Bot = {
   plan(engine, p) {
@@ -1007,12 +1018,12 @@ const Bot = {
     };
     for (const c of own) bump(cellKey(c.x, c.y), +1);
 
-    // food cells this plan hasn't already "eaten"
+    // token cells this plan hasn't already "eaten" (food, boost, or bounty)
     const foods = [];
-    for (const [k, f] of engine.food) foods.push({ x: k & 63, y: k >> 6, k });
+    for (const [k, f] of engine.food) foods.push({ x: k & 63, y: k >> 6, k, kind: f.kind, value: f.value });
     const eaten = new Set();
 
-    let energy = p.energy;
+    let boosts = p.boosts;
 
     const blocked = (x, y, tailK) => {
       if (x < 0 || y < 0 || x >= N || y >= N) return true;
@@ -1036,7 +1047,7 @@ const Bot = {
         return !blocked(t.x, t.y, tailK);
       });
 
-      let dir, turbo = false;
+      let dir, boost = false;
       if (!safe.length) {
         dir = rngPick(rng, DIR_LIST);          // cornered — pick a hero's exit
       } else {
@@ -1055,36 +1066,38 @@ const Bot = {
         } else {
           dir = rngPick(rng, safe);
         }
-        // 3) turbo trigger: affordable + clear line of sight + 25% roll
-        if (energy >= cfg.turboEnergyCost && rng() < 0.25) {
+        // 3) boost trigger: hold a card + clear line of sight + 25% roll
+        if (boosts >= 1 && rng() < 0.25) {
           let clear = true;
-          for (let s = 1; s <= cfg.turboDistance; s++) {
+          for (let s = 1; s <= cfg.boostDistance; s++) {
             const tx = head.x + DIRS[dir].dx * s, ty = head.y + DIRS[dir].dy * s;
             if (tx < 0 || ty < 0 || tx >= N || ty >= N) { clear = false; break; }
             const k = cellKey(tx, ty);
             if (others.has(k) || ownCount.get(k)) { clear = false; break; }   // conservative: ignores own tail clearing
           }
-          if (clear) { turbo = true; energy -= cfg.turboEnergyCost; }
+          if (clear) { boost = true; boosts -= 1; }
         }
       }
 
       // simulate our own slide so the next slot plans from the right shape
-      const steps = turbo ? cfg.turboDistance : 1;
+      const steps = boost ? cfg.boostDistance : 1;
       for (let s = 0; s < steps; s++) {
         const nx = own[0].x + DIRS[dir].dx, ny = own[0].y + DIRS[dir].dy;
         if (nx < 0 || ny < 0 || nx >= N || ny >= N) break;   // planner walked off — engine will handle the death
         const k = cellKey(nx, ny);
+        const tok = foods.find((f) => f.k === k && !eaten.has(f.k));
+        // grow only on food/bounty with room; boost tokens draw cards instead
+        let grow = 0;
+        if (tok && tok.kind !== 'boost') grow = Math.max(0, Math.min(tok.value, cfg.maxSnakeLength - own.length));
         own.unshift({ x: nx, y: ny }); bump(k, +1);
-        const foodHere = foods.find((f) => f.k === k && !eaten.has(f.k));
-        if (foodHere) {
+        if (tok) {
           eaten.add(k);
-          energy = Math.min(cfg.maxEnergyStorage, energy + cfg.foodEnergyYield);
-          if (own.length > cfg.maxSnakeLength) { const t = own.pop(); bump(cellKey(t.x, t.y), -1); }
-        } else {
-          const t = own.pop(); bump(cellKey(t.x, t.y), -1);
+          if (tok.kind === 'boost') boosts = Math.min(cfg.maxBoostCards, boosts + tok.value);
         }
+        if (grow > 0) { for (let u = 1; u < grow; u++) { const nk = cellKey(own[1].x, own[1].y); own.splice(2, 0, { ...own[1] }); bump(nk, +1); } }
+        else { const t = own.pop(); bump(cellKey(t.x, t.y), -1); }
       }
-      cmds.push({ dir, turbo });
+      cmds.push({ dir, boost });
     }
     return cmds;
   },
@@ -1123,8 +1136,8 @@ function runHeadlessGame(cfg, seed) {
     scores: e.players.map((p) => p.score),
     deaths: e.players.map((p) => p.deaths),
     causes: { ...e.stats.deathsByCause },
-    turboExecuted: e.stats.turboExecuted,
-    turboCrashes: e.stats.turboCrashes,
+    boostExecuted: e.stats.boostExecuted,
+    boostCrashes: e.stats.boostCrashes,
     bonusPoints: e.stats.bonusPoints,
     foodNeutralEnd: food.neutral,
     foodBountyEnd: food.bounty,
@@ -1140,7 +1153,7 @@ async function runBatch(cfg, runs, onProgress) {
     scoreHigh: -Infinity, scoreLow: Infinity, scoreSum: 0, scoreCount: 0,
     deathsTotal: 0,
     causes: { wall: 0, head: 0, body: 0 },
-    turboExecuted: 0, turboCrashes: 0,
+    boostExecuted: 0, boostCrashes: 0,
     foodNeutralSum: 0, foodBountySum: 0,
     winsBySeat: Array(cfg.playerCount).fill(0),
   };
@@ -1157,8 +1170,8 @@ async function runBatch(cfg, runs, onProgress) {
     }
     agg.deathsTotal += g.deaths.reduce((a, b) => a + b, 0);
     for (const c of ['wall', 'head', 'body']) agg.causes[c] += g.causes[c];
-    agg.turboExecuted += g.turboExecuted;
-    agg.turboCrashes += g.turboCrashes;
+    agg.boostExecuted += g.boostExecuted;
+    agg.boostCrashes += g.boostCrashes;
     agg.foodNeutralSum += g.foodNeutralEnd;
     agg.foodBountySum += g.foodBountyEnd;
     agg.winsBySeat[g.winnerSeat]++;
@@ -1214,7 +1227,7 @@ const Sound = {
                         this.tone({ f: 780, f2: 1150, t: 0.07, type: 'triangle', g: 0.05, when: 0.07 }); },
       bounty:   () => { this.tone({ f: 523, t: 0.05, type: 'triangle', g: 0.05 });
                         this.tone({ f: 784, t: 0.08, type: 'triangle', g: 0.05, when: 0.05 }); },
-      turbo:    () => this.tone({ f: 220, f2: 950, t: 0.16, type: 'sawtooth', g: 0.03 }),
+      boost:    () => this.tone({ f: 220, f2: 950, t: 0.16, type: 'sawtooth', g: 0.03 }),
       death:    () => { this.tone({ f: 180, f2: 45, t: 0.28, type: 'square', g: 0.055 });
                         this.tone({ f: 95, f2: 40, t: 0.3, type: 'sawtooth', g: 0.04, when: 0.02 }); },
       lock:     () => this.tone({ f: 1250, t: 0.03, type: 'square', g: 0.025 }),
@@ -1234,7 +1247,7 @@ const Sound = {
 /* ════════════════════════════════════════════════════════════════════════
    §6 CANVAS RENDERER
    Full-state redraw each frame: grid → spawn nodes → food/bounty → snakes
-   → transient effects (death rings, turbo trails).
+   → transient effects (death rings, boost trails).
    ════════════════════════════════════════════════════════════════════════ */
 const Renderer = {
   canvas: null, ctx: null, cell: 0, N: 12,
@@ -1310,27 +1323,32 @@ const Renderer = {
       }
     });
 
-    // food tokens
+    // tokens: amber food pellets, violet boost bolts, player-coloured bounty
+    const stamp2 = (x, y, col) => {                 // little "2" badge for value-2 tokens
+      ctx.fillStyle = col;
+      ctx.font = `bold ${Math.max(7, s * 0.2)}px system-ui`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('2', x + s * 0.2, y - s * 0.2);
+    };
     for (const [k, f] of engine.food) {
       const x = this.center(k & 63), y = this.center(k >> 6);
-      if (f.type === 'neutral' && f.token?.double) {
-        // 2× token: chunky rounded square with a "2×" stamp — double growth
+      if (f.kind === 'boost') {
+        // boost token: violet disc with a white lightning bolt
         ctx.save();
-        ctx.shadowColor = '#fbbf24'; ctx.shadowBlur = s * 0.35;
-        ctx.fillStyle = '#f59e0b';
-        const r = s * 0.28;
-        ctx.beginPath();
-        if (ctx.roundRect) ctx.roundRect(x - r, y - r, r * 2, r * 2, s * 0.09);
-        else ctx.rect(x - r, y - r, r * 2, r * 2);
-        ctx.fill();
+        ctx.shadowColor = '#a78bfa'; ctx.shadowBlur = s * 0.3;
+        ctx.fillStyle = '#7c3aed';
+        ctx.beginPath(); ctx.arc(x, y, s * 0.22, 0, Math.PI * 2); ctx.fill();
         ctx.shadowBlur = 0;
-        ctx.fillStyle = '#451a03';
-        ctx.font = `bold ${Math.max(8, s * 0.3)}px system-ui`;
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText('2×', x, y + 0.5);
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.moveTo(x + s * 0.06, y - s * 0.13); ctx.lineTo(x - s * 0.08, y + s * 0.02);
+        ctx.lineTo(x - s * 0.01, y + s * 0.02); ctx.lineTo(x - s * 0.05, y + s * 0.14);
+        ctx.lineTo(x + s * 0.09, y - s * 0.02); ctx.lineTo(x + s * 0.01, y - s * 0.02);
+        ctx.closePath(); ctx.fill();
         ctx.restore();
-      } else if (f.type === 'neutral') {
-        // neutral: golden pellet with a bright core
+        if (f.value === 2) stamp2(x, y, '#5b21b6');
+      } else if (f.kind === 'food') {
+        // food token: golden pellet with a bright core
         ctx.save();
         ctx.shadowColor = '#f59e0b'; ctx.shadowBlur = s * 0.3;
         ctx.fillStyle = '#f59e0b';
@@ -1339,6 +1357,7 @@ const Renderer = {
         ctx.fillStyle = '#fde68a';
         ctx.beginPath(); ctx.arc(x - s * 0.05, y - s * 0.05, s * 0.08, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
+        if (f.value === 2) stamp2(x, y, '#92400e');
       } else {
         // bounty: player-colored diamond with a white ring (worth double)
         const col = SEAT_COLORS[f.ownerSeat].bright;
@@ -1463,7 +1482,7 @@ const LIVE = {
   currentHuman: null,       // seat currently editing the strip
   placing: false,           // current human is choosing a spawn placement
   placeChain: [],           // [{x,y}…] head-first placement chain being built
-  draft: null,              // [{dir|null, turbo}] for the current human
+  draft: null,              // [{dir|null, boost}] for the current human
   draftSel: 0,              // selected slot index
   botTimers: [],
   panic: null,              // {deadline, raf}
@@ -1549,7 +1568,7 @@ const LIVE = {
     this.currentHuman = seat;
     this.placing = !p.alive;
     this.placeChain = [];
-    this.draft = Array.from({ length: this.engine.cfg.commandSlots }, () => ({ dir: null, turbo: false }));
+    this.draft = Array.from({ length: this.engine.cfg.commandSlots }, () => ({ dir: null, boost: false }));
     this.draftSel = 0;
     if (this.multiHuman) {
       // interstitial so the previous human's strip stays secret
@@ -1654,7 +1673,7 @@ const LIVE = {
     const p = this.engine.players[this.currentHuman];
     // unset slots lock in as a "stay" (dir: null) — you may program FEWER
     // than the max and simply stop in place for the rest of the round
-    const cmds = this.draft.map((d) => d.dir ? { dir: d.dir, turbo: d.turbo } : { dir: null, turbo: false });
+    const cmds = this.draft.map((d) => d.dir ? { dir: d.dir, boost: d.boost } : { dir: null, boost: false });
     if (auto) log(`⏱ ${p.name} auto-locked by the panic timer`, p.color);
     this.currentHuman = null;
     this.lockPlayer(p, cmds);
@@ -1677,7 +1696,7 @@ const LIVE = {
       if (!p.alive || p.locked) continue;
       const cmds = p.isBot
         ? Bot.plan(this.engine, p)
-        : Array.from({ length: this.engine.cfg.commandSlots }, () => ({ dir: p.facing, turbo: false }));
+        : Array.from({ length: this.engine.cfg.commandSlots }, () => ({ dir: p.facing, boost: false }));
       if (!p.isBot) log(`⏱ ${p.name} auto-locked by the panic timer`, p.color);
       this.lockPlayer(p, cmds);
     }
@@ -1711,9 +1730,9 @@ const LIVE = {
       setPhaseText(`Resolving move ${t + 1} of ${e.cfg.commandSlots}…`);
       renderRevealStrip(t);
       const { acts } = e.beginTick(t);
-      // turbo trails render from each turbo snake's tick-start head
-      const trailStarts = acts.filter((a) => a.turbo).map((a) => ({ p: a.p, x: a.p.body[0].x, y: a.p.body[0].y }));
-      if (trailStarts.length) Sound.play('turbo');
+      // boost trails render from each boosting snake's tick-start head
+      const trailStarts = acts.filter((a) => a.boost).map((a) => ({ p: a.p, x: a.p.body[0].x, y: a.p.body[0].y }));
+      if (trailStarts.length) Sound.play('boost');
       let r;
       do {
         r = e.stepTick();
@@ -1807,8 +1826,8 @@ function renderHumanStrip() {
   const e = LIVE.engine;
   const p = e.players[LIVE.currentHuman];
   const draftMoveCount = LIVE.draft.filter((d) => d.dir).length;
-  const turboCount = LIVE.draft.filter((d) => d.dir && d.turbo).length;  // stays drop their turbo at lock
-  const overBudget = turboCount * e.cfg.turboEnergyCost > p.energy;
+  const boostCount = LIVE.draft.filter((d) => d.dir && d.boost).length;  // stays drop their boost at lock
+  const overBudget = boostCount > p.boosts;
   $('stripArea').innerHTML = `
     <div class="max-w-3xl mx-auto fade-in">
       <div class="flex items-center gap-2 mb-2 text-sm">
@@ -1816,8 +1835,8 @@ function renderHumanStrip() {
         <b>${esc(p.name)}</b>
         <span class="text-slate-400 text-xs">program 2–${e.cfg.commandSlots} moves · empty slots stop in place</span>
         <span class="ml-auto text-xs ${overBudget ? 'text-rose-400 font-bold' : 'text-slate-400'}">
-          ⚡ energy ${p.energy}/${e.cfg.maxEnergyStorage} · turbo cost ${e.cfg.turboEnergyCost}
-          ${overBudget ? ' — over budget: extra turbos will downgrade!' : ''}
+          ⚡ boost cards ${boostCount}/${p.boosts}
+          ${overBudget ? ' — not enough cards: extra boosts will downgrade!' : ''}
         </span>
       </div>
       <div class="flex items-start gap-2 flex-wrap">
@@ -1828,9 +1847,9 @@ function renderHumanStrip() {
                 class="w-12 h-12 rounded-lg border-2 text-2xl font-black transition-colors
                        ${i === LIVE.draftSel ? 'border-emerald-400 bg-slate-700' : 'border-slate-700 bg-slate-800 hover:bg-slate-700'}
                        ${d.dir ? 'text-white' : 'text-slate-600'}">${d.dir ? DIRS[d.dir].glyph : '·'}</button>
-              <button data-turbo="${i}" title="Turbo: slide ${e.cfg.turboDistance} cells this move (${e.cfg.turboEnergyCost}⚡)"
+              <button data-boost="${i}" title="Boost: spend 1 card to slide ${e.cfg.boostDistance} cells this move"
                 class="text-[10px] px-1.5 py-0.5 rounded font-bold border
-                       ${d.turbo ? 'bg-amber-400 text-slate-950 border-amber-300' : 'bg-slate-800 text-slate-500 border-slate-700 hover:text-amber-300'}">⚡${d.turbo ? ' ON' : ''}</button>
+                       ${d.boost ? 'bg-violet-500 text-white border-violet-300' : 'bg-slate-800 text-slate-500 border-slate-700 hover:text-violet-300'}">⚡${d.boost ? ' ×3' : ''}</button>
             </div>`).join('')}
         </div>
         <div class="flex flex-col gap-1.5 ml-2">
@@ -1840,7 +1859,7 @@ function renderHumanStrip() {
             <button data-dir="down"  class="dirbtn">↓</button>
             <button data-dir="right" class="dirbtn">→</button>
           </div>
-          <p class="text-[10px] text-slate-500">arrows/WASD · T = turbo · ⌫ undo</p>
+          <p class="text-[10px] text-slate-500">arrows/WASD · B = boost · ⌫ undo</p>
         </div>
         <div class="flex flex-col gap-1.5 ml-auto">
           <button id="btnLock" ${draftMoveCount >= 2 ? '' : 'disabled'}
@@ -1859,16 +1878,16 @@ function renderHumanStrip() {
   $('stripArea').querySelectorAll('[data-slot]').forEach((b) => {
     b.onclick = () => { LIVE.draftSel = Number(b.dataset.slot); renderHumanStrip(); };
   });
-  $('stripArea').querySelectorAll('[data-turbo]').forEach((b) => {
+  $('stripArea').querySelectorAll('[data-boost]').forEach((b) => {
     b.onclick = () => {
-      const i = Number(b.dataset.turbo);
-      LIVE.draft[i].turbo = !LIVE.draft[i].turbo;
+      const i = Number(b.dataset.boost);
+      LIVE.draft[i].boost = !LIVE.draft[i].boost;
       renderHumanStrip();
     };
   });
   $('btnLock').onclick = () => LIVE.draft.filter((d) => d.dir).length >= 2 && LIVE.lockCurrentHuman();
   $('btnClearStrip').onclick = () => {
-    LIVE.draft.forEach((d) => { d.dir = null; d.turbo = false; });
+    LIVE.draft.forEach((d) => { d.dir = null; d.boost = false; });
     LIVE.draftSel = 0;
     renderHumanStrip();
   };
@@ -1952,7 +1971,7 @@ function renderRevealStrip(tick) {
                          ${i === tick ? 'bg-slate-600 ring-1 ring-emerald-400' : 'bg-slate-800'}
                          ${dead ? 'opacity-25' : ''}">
                         ${c ? (c.dir ? DIRS[c.dir].glyph : '■') : '·'}
-                        ${c?.turbo ? '<span class="absolute -top-1 -right-1 text-[9px]">⚡</span>' : ''}
+                        ${c?.boost ? '<span class="absolute -top-1 -right-1 text-[9px]">⚡</span>' : ''}
                       </span>`;
             }).join('')}
           </div>
@@ -1977,18 +1996,18 @@ document.addEventListener('keydown', (ev) => {
     return;
   }
   if (keyDir) { ev.preventDefault(); setDraftDir(keyDir); return; }
-  if (ev.key === 't' || ev.key === 'T') {
-    // toggle turbo on the most recently filled slot (or the selected one)
+  if (ev.key === 'b' || ev.key === 'B') {
+    // toggle boost on the most recently filled slot (or the selected one)
     let i = LIVE.draftSel;
     if (!LIVE.draft[i].dir && i > 0) i--;
-    LIVE.draft[i].turbo = !LIVE.draft[i].turbo;
+    LIVE.draft[i].boost = !LIVE.draft[i].boost;
     renderHumanStrip();
   }
   if (ev.key === 'Backspace') {
     ev.preventDefault();
     let i = LIVE.draftSel;
     if (!LIVE.draft[i]?.dir && i > 0) i--;
-    LIVE.draft[i].dir = null; LIVE.draft[i].turbo = false;
+    LIVE.draft[i].dir = null; LIVE.draft[i].boost = false;
     LIVE.draftSel = i;
     renderHumanStrip();
   }
@@ -2007,8 +2026,9 @@ function renderScoreboard() {
     const state = !p.alive ? (LIVE.phase === 'gameover' ? '💀' : '💀 respawning')
       : LIVE.phase === 'programming' ? (p.locked ? '🔒 locked' : '✏️ programming')
       : '';
-    const pips = Array.from({ length: e.cfg.maxEnergyStorage }, (_, i) =>
-      `<span class="inline-block w-1.5 h-3 rounded-sm ${i < p.energy ? 'bg-amber-400' : 'bg-slate-700'}"></span>`).join('');
+    const cap = Math.min(e.cfg.maxBoostCards, 10);
+    const pips = Array.from({ length: cap }, (_, i) =>
+      `<span class="inline-block w-1.5 h-3 rounded-sm ${i < p.boosts ? 'bg-violet-400' : 'bg-slate-700'}"></span>`).join('');
     return `
       <div class="bg-slate-800/70 rounded-lg p-2.5 border-l-4" style="border-color:${p.color}">
         <div class="flex items-center gap-1.5 text-sm">
@@ -2018,7 +2038,7 @@ function renderScoreboard() {
           <span class="text-[10px] text-slate-500">/${e.cfg.pointsToWin}</span>
         </div>
         <div class="flex items-center gap-2 mt-1 text-[11px] text-slate-400">
-          <span title="energy" class="flex gap-px items-center">${pips}</span>
+          <span title="boost cards" class="flex gap-px items-center">${pips}</span>
           <span title="length">🐍 ${p.alive ? p.body.length : '—'}</span>
           <span title="deaths">💀 ${p.deaths}</span>
           <span class="ml-auto text-[10px] ${p.locked && p.alive ? 'text-emerald-400' : 'text-slate-500'}">${state}</span>
@@ -2051,9 +2071,14 @@ function consumeEvents(events) {
     }
     else if (ev.t === 'eat') {
       const p = e.players[ev.seat];
-      sounds.add(ev.double ? 'eat2x' : ev.foodType === 'bounty' ? 'bounty' : 'eat');
-      if (ev.double) log(`🍒 ${esc(p.name)} ate a 2× token (+2 growth)`, p.color);
-      else if (ev.foodType === 'bounty') log(`💎 ${esc(p.name)} ate a bounty chip (+${e.cfg.bountyEnergyYield}⚡)`, p.color);
+      sounds.add(ev.value === 2 ? 'eat2x' : ev.kind === 'bounty' ? 'bounty' : 'eat');
+      if (ev.kind === 'bounty') log(`💎 ${esc(p.name)} ate a bounty chip (+2 growth)`, p.color);
+      else if (ev.value === 2) log(`🍒 ${esc(p.name)} ate a +2 food (grow 2)`, p.color);
+    }
+    else if (ev.t === 'boostDraw') {
+      const p = e.players[ev.seat];
+      sounds.add('bounty');
+      log(`⚡ ${esc(p.name)} grabbed a boost token — draw ${ev.value} boost card${ev.value > 1 ? 's' : ''}`, p.color);
     }
     else if (ev.t === 'bonus') {
       const p = e.players[ev.seat];
@@ -2125,7 +2150,7 @@ function renderSimResults(a) {
   const avgScore = a.scoreSum / a.scoreCount;
   const avgDeaths = a.deathsTotal / (a.runs * a.cfg.playerCount);
   const totalDeaths = a.causes.wall + a.causes.head + a.causes.body;
-  const crashRate = a.turboExecuted ? (a.turboCrashes / a.turboExecuted * 100) : 0;
+  const crashRate = a.boostExecuted ? (a.boostCrashes / a.boostExecuted * 100) : 0;
   const maxCause = Math.max(a.causes.wall, a.causes.head, a.causes.body, 1);
   const maxWins = Math.max(...a.winsBySeat, 1);
   const pct = (n, d) => d ? `${Math.round(n / d * 100)}%` : '—';
@@ -2146,7 +2171,7 @@ function renderSimResults(a) {
         ${tile('High score', a.scoreHigh, 'best single result')}
         ${tile('Low score', a.scoreLow, 'worst single result')}
         ${tile('Avg deaths', fmt1(avgDeaths), 'per player, per game')}
-        ${tile('Turbo crash rate', `${fmt1(crashRate)}%`, `${a.turboCrashes} of ${a.turboExecuted} turbo moves`)}
+        ${tile('Boost crash rate', `${fmt1(crashRate)}%`, `${a.boostCrashes} of ${a.boostExecuted} boost slides`)}
       </div>
 
       <!-- charts -->
@@ -2161,31 +2186,31 @@ function renderSimResults(a) {
       </div>
 
       <div class="grid md:grid-cols-2 gap-3">
-        <!-- turbo efficiency meter -->
+        <!-- boost efficiency meter -->
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
-          <h3 class="text-sm font-semibold text-slate-200 mb-3">Turbo efficiency</h3>
+          <h3 class="text-sm font-semibold text-slate-200 mb-3">Boost efficiency</h3>
           <div class="flex items-center gap-4">
             <div>
-              <div class="text-2xl font-semibold text-white">${a.turboExecuted}</div>
-              <div class="text-[11px] text-slate-500">turbo moves executed</div>
+              <div class="text-2xl font-semibold text-white">${a.boostExecuted}</div>
+              <div class="text-[11px] text-slate-500">boost cards spent</div>
             </div>
             <div>
-              <div class="text-2xl font-semibold text-white">${a.turboCrashes}</div>
+              <div class="text-2xl font-semibold text-white">${a.boostCrashes}</div>
               <div class="text-[11px] text-slate-500">ended in a crash</div>
             </div>
             <div class="flex-1">
               <div class="h-[18px] rounded overflow-hidden" style="background:rgba(239,68,68,0.16)">
                 <div class="grow-bar h-full rounded-r" style="width:${Math.min(crashRate, 100)}%;background:#ef4444"></div>
               </div>
-              <div class="text-[11px] text-slate-500 mt-1">crash share of all turbo moves — ${fmt1(crashRate)}%</div>
+              <div class="text-[11px] text-slate-500 mt-1">crash share of all boost slides — ${fmt1(crashRate)}%</div>
             </div>
           </div>
         </div>
         <!-- food density -->
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
-          <h3 class="text-sm font-semibold text-slate-200 mb-3">Food left on board at game end</h3>
+          <h3 class="text-sm font-semibold text-slate-200 mb-3">Tokens left on board at game end</h3>
           <div class="space-y-[6px] border-l border-slate-700 pl-2">
-            ${barRow('Neutral tokens', a.foodNeutralSum / a.runs, a.cfg.totalFoodTokens, '#c98500', `${fmt1(a.foodNeutralSum / a.runs)} avg`)}
+            ${barRow('Pool tokens', a.foodNeutralSum / a.runs, a.cfg.totalFoodTokens, '#c98500', `${fmt1(a.foodNeutralSum / a.runs)} avg`)}
             ${barRow('Bounty chips', a.foodBountySum / a.runs, a.cfg.totalFoodTokens, '#3987e5', `${fmt1(a.foodBountySum / a.runs)} avg`)}
           </div>
           <p class="text-[11px] text-slate-500 mt-3">Scale: ${a.cfg.totalFoodTokens} total neutral tokens in the system.</p>
