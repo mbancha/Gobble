@@ -6,13 +6,13 @@
 
 ## Components
 
-- **N × Mini-boards** — one 4×4 board per player, with **6 food spots printed on each** (5 normal + 1 **×2 food** in the middle). Food is part of the board — it never runs out and nothing is ever placed or removed.
+- **6 × Mini-boards** — 4×4 boards, one per player. Each has **6 food spots printed on it**, and **every board's arrangement is different** and rotationally asymmetric, so turning a board around changes the game. Food is part of the board — it never runs out and nothing is ever placed or removed. All printed food is **+1**; ×2 food comes only from bounty.
 - **8 × Arrow card sets** — 6 arrow cards per player, in the player's colour.
 - **8 × Personal boost cards** — every player permanently owns **one boost card** (part of their hand, like the arrows — it comes back every round).
-- **1 × Boost deck** — a shared stack of generic "×3" boost cards, drawn only from ×2-energy tokens; these are **discarded after use**.
-- **N−1 × ×2-energy tokens** — one-shot pickups scattered at setup.
+- **1 × Boost deck** — a shared stack of generic "×3" boost cards, drawn only from +2 boost tokens; these are **discarded after use**.
+- **N−1 × +2 boost tokens** — one-shot pickups scattered at setup (10 provided).
 - **8 × Player boards** — a length row to track your snake, with death points under each box, plus a quick reference.
-- **1 × Score track sheet** — a shared 0–200 track; every player moves a marker on it.
+- **1 × Score track sheet** — a shared 1–100 track; every player moves a marker on it (start off the track at 0).
 - **Snake pieces** — per player, 1 head marker + up to 12 body/tail segments in your colour.
 - **A 15-second timer** — a phone timer or sand timer (the "panic timer").
 
@@ -28,7 +28,7 @@ Be the first to reach the **target score (default 70 points)**. You score mostly
 
 1. **Build the board:** place one mini-board per player, arranged **as close to an even square as possible** (2 players = a 2×1 strip, 3 = an L, 5 = a P, and so on). Edges with no board beyond them are walls.
 2. Give each player their **6 arrow cards + 1 boost card**, their **snake pieces**, and a **player board**. Shuffle the boost deck into a draw stack.
-3. **Scatter N−1 ×2-energy tokens** onto random cells that aren't food spots (deal them blind, or have the last-place player from the previous game place them).
+3. **Scatter N−1 +2 boost tokens** onto random cells that aren't food spots (deal them blind, or have the last-place player from the previous game place them).
 4. **Place each snake** at length **3**: any 3 contiguous cells (bends fine) free of snakes and tokens, with **at least one piece touching a corner of any mini-board**. Placing over printed food is fine — **you never eat what you cover**.
 
 ---
@@ -69,8 +69,7 @@ When your head enters an uncovered food spot or a token (and you didn't crash):
 | You entered | Growth | Boost cards |
 |---|---|---|
 | **Food spot** (printed) | +1 segment | — |
-| **×2 food spot** (printed) | +2 segments | — |
-| **×2-energy token** (one-shot) | — | **draw 2** |
+| **+2 boost token** (one-shot) | — | **draw 2** |
 | **Bounty chip** (from a death, one-shot) | +2 segments | — |
 
 - **Printed food never depletes.** Eating doesn't remove it; a snake sitting on a spot just blocks it until the cell frees up. The same spot can feed snake after snake.
@@ -80,7 +79,7 @@ When your head enters an uncovered food spot or a token (and you didn't crash):
 
 ### At maximum length (13)
 
-Your snake **stops growing** — every unit of food you eat instead scores **+10 points immediately** (×2 food or a bounty chip = **+20**).
+Your snake **stops growing** — every unit of food you eat instead scores **+10 points immediately** (a ×2 bounty chip = **+20**).
 
 > This is the engine of the game: a maxed snake camping good food spots prints points. Staying alive at max is nearly always better than resetting.
 
@@ -120,14 +119,15 @@ The player who crossed the line doesn't automatically win — a rival sitting on
 |---|---|---|
 | Players | 2–8 | One mini-board each |
 | Mini-board size | 4×4 | |
-| Food spots per board | 6 | 1 of them is ×2 (the centre) |
+| Food spots per board | 6 | All +1; every board's layout differs |
 | Command slots (cards/round) | 6 | Minimum 2 programmed |
 | Starting length | 3 | |
 | Maximum length | 13 | Food = +10 pts each at max |
 | Boost distance | 3 cells | |
 | Free boosts per round | 1 | Your personal boost card |
-| ×2-energy tokens | N−1 | Each draws 2 boost cards |
+| +2 boost tokens | N−1 | Each draws 2 boost cards |
 | Target score | 70 | First to trigger ends the game |
+| Score track | 1–100 | Markers start off the track |
 
 ---
 
@@ -136,6 +136,6 @@ The player who crossed the line doesn't automatically win — a rival sitting on
 1. **Program** 2–6 cards face-down · **arrow = 1**, **boost = 3** (your own boost returns; drawn ones discard).
 2. First lock starts the **15-second** timer; everyone locks when it ends.
 3. **Reveal** slot by slot: **boosts slide first**, then all arrows step together — tails clear → heads slide → crashes → eat.
-4. **Printed food** grows you (+1/+2) and never runs out; **×2-energy tokens** draw 2 boost cards; **bounty chips** are one-shot ×2 food. At **max 13**, food = **+10 points each**.
+4. **Printed food** grows you (+1) and never runs out; **+2 boost tokens** draw 2 boost cards; **bounty chips** are one-shot ×2 food. At **max 13**, food = **+10 points each**.
 5. **Crash** = death: bank your length, flip every other segment to bounty, respawn next round **touching a board corner**.
 6. **First to 70** ends it; living snakes cash out; **highest total wins**.

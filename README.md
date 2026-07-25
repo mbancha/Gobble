@@ -7,8 +7,8 @@ Every round, all players secretly program a strip of **2 to `commandSlots` cards
 (move 1) and **Boost** cards (slide 3; everyone owns one that refreshes each round, extras
 are banked from ×2-energy tokens) — locking in fewer than the max stops you in place. The
 board is **one 4×4 mini-board per player**, tiled as close to a square as possible (3
-players = an L), with **food printed on fixed spots that never deplete** — covering a spot
-just blocks it. Boosts resolve before arrow moves each slot, so a booster claims contested
+players = an L), with **food printed on fixed spots that never deplete** (each board's layout differs and is
+rotationally asymmetric) — covering a spot just blocks it. Boosts resolve before arrow moves each slot, so a booster claims contested
 squares first. Dying flips every other body piece into one-shot ×2 bounty food and **banks
 points by length** (5→1 … 13→20); at **max length (13)** each food scores **+10 on the
 spot**. Respawns place any 3 contiguous cells **touching a mini-board corner**. First to

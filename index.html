@@ -53,11 +53,12 @@
     • THE BOARD is one tileSize×tileSize mini-board per player, tiled as
       close to an even square as possible (3 players → an L; 5 → a P; …).
       Cells outside the placed mini-boards are walls.
-    • PRINTED FOOD: every mini-board carries the SAME fixed food layout
-      (even-spread sampled; the centre-first spots are the ×2 food). Spots
-      NEVER deplete — eating doesn't remove them, and a snake covering one
-      just blocks it until the cell frees up. There is no end-of-round token
-      upkeep at all.
+    • PRINTED FOOD: every mini-board carries its OWN randomized food layout,
+      chosen for rotational asymmetry (turning a board changes play) and
+      spread. All printed spots are plain +1 food by default — ×2 food comes
+      only from bounty chips. Spots NEVER deplete: eating doesn't remove
+      them, and a snake covering one just blocks it until the cell frees up.
+      There is no end-of-round token upkeep at all.
     • ONE-SHOT PICKUPS: N−1 ×2-energy tokens (draw 2 boost cards) scatter on
       random non-spot cells at setup, and BOUNTY chips (grow 2, no energy)
       appear on deaths. Both leave the game once eaten; a pickup sitting on
@@ -371,7 +372,7 @@ const CONFIG_FIELDS = [
   { id: 'maxBoostCards',       label: 'Max banked energy',       min: 0,  max: 20,  def: 6,   group: 'Movement & boost', hint: 'Cap on EXTRA boost cards banked from ×2-energy tokens' },
   // ── printed food ──
   { id: 'foodSpotsPerTile',    label: 'Food spots / mini-board', min: 1,  max: 16,  def: 6,   group: 'Printed food', hint: 'Fixed spots printed on every mini-board — they never deplete' },
-  { id: 'x2FoodPercent',       label: '×2 food share (%)',       min: 0,  max: 100, def: 20,  group: 'Printed food', hint: 'Share of each board\'s spots that are ×2 food (centre-first)' },
+  { id: 'x2FoodPercent',       label: '×2 food share (%)',       min: 0,  max: 100, def: 0,   group: 'Printed food', hint: 'Share of printed spots worth ×2 (0 by default — ×2 comes from bounty only)' },
   // ── match & guards ──
   { id: 'pointsToWin',         label: 'Points to win',           min: 10, max: 500, def: 70,  group: 'Match rules', hint: 'Instant victory threshold' },
   { id: 'maxSnakeLength',      label: 'Max snake length',        min: 6,  max: 64,  def: 13,  group: 'Match rules', hint: 'Body-piece supply cap' },
@@ -523,6 +524,34 @@ function computeSpawnNodes(N, count) {
   return nodes;
 }
 
+/**
+ * A randomized food layout for one t×t mini-board: `count` distinct cells
+ * chosen to (a) look different under every 90° rotation — so turning the
+ * board around genuinely changes play — and (b) spread out rather than
+ * clump. Samples candidates and keeps the best-scoring one.
+ */
+function randomFoodLayout(t, count, rng) {
+  const all = Array.from({ length: t * t }, (_, i) => ({ x: i % t, y: Math.floor(i / t) }));
+  const rot = (c) => ({ x: t - 1 - c.y, y: c.x });          // 90° clockwise
+  let best = null, bestScore = -Infinity;
+  for (let tries = 0; tries < 60; tries++) {
+    const pick = rngShuffle(rng, all.slice()).slice(0, count);
+    const set = new Set(pick.map((c) => cellKey(c.x, c.y)));
+    // asymmetry = fewest cells that MOVE across the three rotations
+    let asym = Infinity, cur = pick;
+    for (let r = 0; r < 3; r++) {
+      cur = cur.map(rot);
+      asym = Math.min(asym, cur.filter((c) => !set.has(cellKey(c.x, c.y))).length);
+    }
+    let adjacent = 0;                                        // clumping penalty
+    for (let i = 0; i < pick.length; i++) for (let j = i + 1; j < pick.length; j++)
+      if (Math.abs(pick[i].x - pick[j].x) + Math.abs(pick[i].y - pick[j].y) === 1) adjacent++;
+    const score = asym * 10 - adjacent + rng() * 0.5;
+    if (score > bestScore) { bestScore = score; best = pick; }
+  }
+  return best;
+}
+
 /* ════════════════════════════════════════════════════════════════════════
    §3 GAME ENGINE (pure, headless, DOM-free)
 
@@ -592,16 +621,15 @@ class Engine {
         this.corners.add(cellKey(tile.x0 + cx, tile.y0 + cy));
     }
 
-    // ── printed food: the SAME fixed layout on every mini-board (farthest-
-    // point sampled, deterministic). Spots never deplete — a snake covering
-    // one just blocks it until the cell frees up. The first sampled spots
-    // (centre-first) are the ×2 food. ──
+    // ── printed food: every mini-board gets its OWN randomized layout with
+    // rotational asymmetry (so turning a board around actually changes it),
+    // matching the printed PnP boards. Spots never deplete — a snake
+    // covering one just blocks it until the cell frees up. ──
     this.spots = new Map();          // cellKey → { kind:'food', value:1|2 } — static
     const perTile = Math.min(cfg.foodSpotsPerTile, t * t);
-    const n2 = Math.round(perTile * (cfg.x2FoodPercent ?? 20) / 100);
-    const layout = computeSpawnNodes(t, perTile);
+    const n2 = Math.round(perTile * (cfg.x2FoodPercent ?? 0) / 100);
     for (const tile of this.tiles) {
-      layout.forEach((c, i) => {
+      randomFoodLayout(t, perTile, rng).forEach((c, i) => {
         this.spots.set(cellKey(tile.x0 + c.x, tile.y0 + c.y), { kind: 'food', value: i < n2 ? 2 : 1 });
       });
     }
@@ -2086,7 +2114,7 @@ function consumeEvents(events) {
     else if (ev.t === 'boostDraw') {
       const p = e.players[ev.seat];
       sounds.add('bounty');
-      log(`⚡ ${esc(p.name)} grabbed a ×2 energy token — +${ev.value} energy`, p.color);
+      log(`⚡ ${esc(p.name)} grabbed a +2 boost token — draw ${ev.value} boost cards`, p.color);
     }
     else if (ev.t === 'bonus') {
       const p = e.players[ev.seat];
@@ -2214,7 +2242,7 @@ function renderSimResults(a) {
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
           <h3 class="text-sm font-semibold text-slate-200 mb-3">Pickups left at game end</h3>
           <div class="space-y-[6px] border-l border-slate-700 pl-2">
-            ${barRow('×2 energy tokens', a.foodNeutralSum / a.runs, Math.max(1, a.cfg.playerCount - 1), '#c98500', `${fmt1(a.foodNeutralSum / a.runs)} avg`)}
+            ${barRow('+2 boost tokens', a.foodNeutralSum / a.runs, Math.max(1, a.cfg.playerCount - 1), '#c98500', `${fmt1(a.foodNeutralSum / a.runs)} avg`)}
             ${barRow('Bounty chips', a.foodBountySum / a.runs, 20, '#3987e5', `${fmt1(a.foodBountySum / a.runs)} avg`)}
           </div>
           <p class="text-[11px] text-slate-500 mt-3">Printed food spots never deplete — only one-shot pickups are counted here.</p>
