@@ -41,10 +41,8 @@
       arrow-mover steps once, together. A booster claims a contested square
       first — an arrow snake arriving later dies against its side. Mutual
       death requires entering the same square on the same sub-step.
-    • A boost slot spends ONE boost card at execution time; with no card in
-      hand the move silently downgrades to a normal 1-cell move. Players start
-      with `startingBoostCards` and draw more from boost tokens (capped at
-      maxBoostCards). Boost cards persist through death.
+    • A boost slot is paid at execution time — free per-round boost first,
+      then banked cards. Banked cards persist through death.
     • A command strip needs a MINIMUM of 2 moves but may lock in fewer than
       the max; unfilled slots become "stay" commands (dir: null) and the
       snake simply holds its cell that tick (still a solid obstacle).
@@ -52,22 +50,31 @@
       piece (starting right behind the head) flips into bounty food — half
       the chips, half the physical upkeep. The skipped pieces and any tail
       piece already "in hand" (cleared this sub-step) exit with the player.
-    • Tokens: FOOD (grow 1, +1 energy), ×2 FOOD (grow 2, +1 energy) and
-      ×2 ENERGY (+2 energy, no growth) — energy = boost cards. Default mix at
-      40 tokens: 20/10/10. Eaten pool tokens return to the reserve; BOUNTY
-      chips (from a death: grow 2, +1 energy) leave the game once eaten.
-      Non-growing pickups clear the tail like a normal move.
-    • End-of-round spawning rolls ceil(reserve/2) tokens so a lone last token
-      still gets a chance.
+    • THE BOARD is one tileSize×tileSize mini-board per player, tiled as
+      close to an even square as possible (3 players → an L; 5 → a P; …).
+      Cells outside the placed mini-boards are walls.
+    • PRINTED FOOD: every mini-board carries the SAME fixed food layout
+      (even-spread sampled; the centre-first spots are the ×2 food). Spots
+      NEVER deplete — eating doesn't remove them, and a snake covering one
+      just blocks it until the cell frees up. There is no end-of-round token
+      upkeep at all.
+    • ONE-SHOT PICKUPS: N−1 ×2-energy tokens (draw 2 boost cards) scatter on
+      random non-spot cells at setup, and BOUNTY chips (grow 2, no energy)
+      appear on deaths. Both leave the game once eaten; a pickup sitting on
+      a food spot covers it. Food and bounty grant growth only — boost cards
+      come solely from your free per-round boost and ×2-energy tokens.
+    • BOOSTS: every player permanently owns freeBoostsPerRound boost(s) that
+      refresh each round; extra boosts spend BANKED cards (cap
+      maxBoostCards). An unaffordable boost downgrades to a 1-cell move.
     • Respawn placement: a returning snake is placed on ANY 3 contiguous
-      empty cells (no snakes, no food) — bends allowed. The head sits at one
-      end and points away from its neck (facing is derived, not chosen), and
-      that facing cell may not hold a food token. Humans click head → middle
-      → tail (arrow keys extend, Backspace undoes); bots pick the legal
-      shape with the most open space around the head (flood fill) plus a
-      mild pull toward food, so they aren't boxed in. If startingLength > 3
-      the extra pieces stack on the tail cell and un-stack as the snake
-      moves. Spawn NODES are now purely food real-estate. Dead players place
+      cells free of snakes and pickups — bends allowed — and at least one
+      cell must TOUCH A CORNER of some mini-board. Printed food spots may be
+      covered freely: a placement never eats what it covers. The head points
+      away from its neck (facing derived, not chosen). Humans click head →
+      middle → tail (arrow keys extend, Backspace undoes); bots pick the
+      legal shape with the most open space around the head (flood fill) plus
+      a mild pull toward food. If startingLength > 3 the extra pieces stack
+      on the tail cell and un-stack as the snake moves. Dead players place
       in random order each round; a fully jammed board means sitting the
       round out.
     • A ×2 food grows TWO segments — the second piece stacks behind the head
@@ -354,22 +361,19 @@ const CAUSE_LABELS = { wall: 'Wall crash', head: 'Head-to-head', body: 'Body cra
 
 const CONFIG_FIELDS = [
   // ── board & players ──
-  { id: 'boardSize',           label: 'Board size (N×N)',        min: 8,  max: 24,  def: 12,  group: 'Board & players', hint: 'Grid dimensions' },
-  { id: 'playerCount',         label: 'Players',                 min: 2,  max: 8,   def: 4,   group: 'Board & players', hint: '2–8 snakes' },
-  { id: 'spawnLocationsCount', label: 'Token spawn nodes',       min: 4,  max: 64,  def: 30,  group: 'Board & players', hint: 'Numbered nodes where tokens spawn' },
+  { id: 'playerCount',         label: 'Players',                 min: 2,  max: 8,   def: 4,   group: 'Board & players', hint: '2–8 snakes — one mini-board each' },
+  { id: 'tileSize',            label: 'Mini-board size (t×t)',   min: 3,  max: 8,   def: 4,   group: 'Board & players', hint: 'One t×t board per player, tiled near-square (3 players = an L)' },
   { id: 'startingLength',      label: 'Starting length',         min: 2,  max: 15,  def: 3,   group: 'Board & players', hint: 'Segments at spawn (incl. head)' },
   // ── movement & boost ──
   { id: 'commandSlots',        label: 'Command slots',           min: 2,  max: 8,   def: 6,   group: 'Movement & boost', hint: 'Cards programmed per round (min 2)' },
   { id: 'boostDistance',       label: 'Boost distance',          min: 2,  max: 6,   def: 3,   group: 'Movement & boost', hint: 'Cells covered by one boost card slide' },
-  { id: 'startingBoostCards',  label: 'Starting energy (cards)', min: 0,  max: 10,  def: 1,   group: 'Movement & boost', hint: 'Boost cards each player begins with' },
-  { id: 'maxBoostCards',       label: 'Max energy (cards)',      min: 1,  max: 20,  def: 6,   group: 'Movement & boost', hint: 'Cap on hoarded boost cards (energy)' },
-  // ── token economy ──
-  { id: 'totalFoodTokens',     label: 'Total tokens',            min: 5,  max: 120, def: 40,  group: 'Token economy', hint: 'Food + boost tokens in the whole system' },
-  { id: 'startingFoodInPlay',  label: 'Starting tokens on board',min: 0,  max: 120, def: 20,  group: 'Token economy', hint: 'Tokens dealt to the board at start' },
-  { id: 'x2FoodPercent',       label: '×2 food share (%)',       min: 0,  max: 100, def: 25,  group: 'Token economy', hint: 'Share of tokens that are ×2 food (grow 2, +1 energy)' },
-  { id: 'x2EnergyPercent',     label: '×2 energy share (%)',     min: 0,  max: 100, def: 25,  group: 'Token economy', hint: 'Share of tokens that are ×2 energy (+2 energy, no growth)' },
+  { id: 'freeBoostsPerRound',  label: 'Free boosts / round',     min: 0,  max: 3,   def: 1,   group: 'Movement & boost', hint: 'Every player always has this boost — it refreshes each round' },
+  { id: 'maxBoostCards',       label: 'Max banked energy',       min: 0,  max: 20,  def: 6,   group: 'Movement & boost', hint: 'Cap on EXTRA boost cards banked from ×2-energy tokens' },
+  // ── printed food ──
+  { id: 'foodSpotsPerTile',    label: 'Food spots / mini-board', min: 1,  max: 16,  def: 6,   group: 'Printed food', hint: 'Fixed spots printed on every mini-board — they never deplete' },
+  { id: 'x2FoodPercent',       label: '×2 food share (%)',       min: 0,  max: 100, def: 20,  group: 'Printed food', hint: 'Share of each board\'s spots that are ×2 food (centre-first)' },
   // ── match & guards ──
-  { id: 'pointsToWin',         label: 'Points to win',           min: 10, max: 500, def: 150, group: 'Match rules', hint: 'Instant victory threshold' },
+  { id: 'pointsToWin',         label: 'Points to win',           min: 10, max: 500, def: 70,  group: 'Match rules', hint: 'Instant victory threshold' },
   { id: 'maxSnakeLength',      label: 'Max snake length',        min: 6,  max: 64,  def: 13,  group: 'Match rules', hint: 'Body-piece supply cap' },
   { id: 'maxLengthFoodBonus',  label: 'Max-length food bonus',   min: 0,  max: 250, def: 10,  group: 'Match rules', hint: 'Points per food unit a capped snake eats (2× food = +20)' },
   { id: 'maxRounds',           label: 'Max rounds (guard)',      min: 10, max: 500, def: 100, group: 'Match rules', hint: 'Highest score wins at the cap' },
@@ -385,13 +389,13 @@ function triangularScoreTable(startLen = 3, maxLen = 13) {
   return rows;
 }
 
-/** Default score table: the physical prototype's stepped ladder for lengths 5
-    through the default max of 13 — 1, 2, 4, 6, 10, 15, 20, 25, 30. */
+/** Default score table: the physical prototype's ladder for lengths 5–13 —
+    1, 2, 3, 5, 7, 10, 13, 16, 20. */
 const DEFAULT_SCORE_TABLE = [
   { min: 1, pts: 0 },
-  { min: 5, pts: 1 }, { min: 6, pts: 2 }, { min: 7, pts: 4 }, { min: 8, pts: 6 },
-  { min: 9, pts: 10 }, { min: 10, pts: 15 }, { min: 11, pts: 20 }, { min: 12, pts: 25 },
-  { min: 13, pts: 30 },
+  { min: 5, pts: 1 }, { min: 6, pts: 2 }, { min: 7, pts: 3 }, { min: 8, pts: 5 },
+  { min: 9, pts: 7 }, { min: 10, pts: 10 }, { min: 11, pts: 13 }, { min: 12, pts: 16 },
+  { min: 13, pts: 20 },
 ];
 
 /** Build the sidebar inputs from the schema (one-time). */
@@ -473,10 +477,8 @@ function readConfig() {
   for (const f of CONFIG_FIELDS) cfg[f.id] = clamp(Math.round(Number($(`cfg-${f.id}`).value) || f.def), f.min, f.max);
   cfg.lengthScoreTable = readScoreTable();
   // cross-field consistency (clamped silently; the panel shows the raw values)
-  cfg.startingFoodInPlay  = Math.min(cfg.startingFoodInPlay, cfg.totalFoodTokens);
-  cfg.spawnLocationsCount = Math.min(cfg.spawnLocationsCount, cfg.boardSize * cfg.boardSize - cfg.playerCount);
-  cfg.spawnLocationsCount = Math.max(cfg.spawnLocationsCount, cfg.playerCount);
-  cfg.startingLength      = Math.min(cfg.startingLength, cfg.maxSnakeLength);
+  cfg.foodSpotsPerTile = Math.min(cfg.foodSpotsPerTile, cfg.tileSize * cfg.tileSize);
+  cfg.startingLength   = Math.min(cfg.startingLength, cfg.maxSnakeLength);
   return cfg;
 }
 
@@ -486,12 +488,13 @@ function makeConfig(overrides = {}) {
   for (const f of CONFIG_FIELDS) cfg[f.id] = f.def;
   cfg.lengthScoreTable = DEFAULT_SCORE_TABLE.map((r) => ({ ...r }));
   Object.assign(cfg, overrides);
-  cfg.startingLength = Math.min(cfg.startingLength, cfg.maxSnakeLength);   // same clamp readConfig applies
+  cfg.startingLength   = Math.min(cfg.startingLength, cfg.maxSnakeLength);   // same clamps readConfig applies
+  cfg.foodSpotsPerTile = Math.min(cfg.foodSpotsPerTile, cfg.tileSize * cfg.tileSize);
   return cfg;
 }
 
 /* ════════════════════════════════════════════════════════════════════════
-   §2 SPAWN-NODE DISTRIBUTION
+   §2 EVEN-SPREAD SAMPLING (used for each mini-board's printed food layout)
    Greedy farthest-point sampling: start at the board center, then repeatedly
    add the cell that maximizes the minimum distance to all chosen nodes.
    Deterministic, and about as "evenly distributed as mathematically
@@ -539,7 +542,6 @@ class Engine {
   constructor(cfg, seats, rng) {
     this.cfg = cfg;
     this.rng = rng;
-    this.N = cfg.boardSize;
     this.round = 0;
     this.gameOver = false;
     this.winnerSeat = null;
@@ -562,7 +564,8 @@ class Engine {
       color: SEAT_COLORS[i].bright,
       chartColor: SEAT_COLORS[i].chart,
       score: 0,
-      boosts: cfg.startingBoostCards,   // boost cards in hand (was: energy)
+      boosts: 0,                    // BANKED bonus boost cards (the 1-per-round boost is free)
+      freeBoostsUsed: 0,            // free boosts spent this round
       deaths: 0,
       alive: false,
       body: [],                     // [{x,y}, ...] head first; may contain stacked duplicates right after spawning
@@ -571,50 +574,65 @@ class Engine {
       locked: false,
     }));
 
-    // fixed spawn nodes, shared by player respawns and token placement
-    this.spawnNodes = computeSpawnNodes(this.N, cfg.spawnLocationsCount);
+    // ── modular board: one tileSize×tileSize mini-board per player, tiled
+    // as close to an even square as possible (3 players → an L, etc.) ──
+    const t = cfg.tileSize;
+    const nTiles = seats.length;
+    const cols = Math.ceil(Math.sqrt(nTiles));
+    const rows = Math.ceil(nTiles / cols);
+    this.tileSize = t;
+    this.tiles = Array.from({ length: nTiles }, (_, i) => ({ x0: (i % cols) * t, y0: Math.floor(i / cols) * t }));
+    this.W = cols * t;
+    this.H = rows * t;
+    this.valid = new Set();          // cells that belong to a placed mini-board
+    this.corners = new Set();        // the 4 corner cells of every mini-board
+    for (const tile of this.tiles) {
+      for (let y = 0; y < t; y++) for (let x = 0; x < t; x++) this.valid.add(cellKey(tile.x0 + x, tile.y0 + y));
+      for (const [cx, cy] of [[0, 0], [t - 1, 0], [0, t - 1], [t - 1, t - 1]])
+        this.corners.add(cellKey(tile.x0 + cx, tile.y0 + cy));
+    }
 
-    // Token pool: each token is permanently assigned one numbered spawn node
-    // (shuffled round-robin so nodes are used evenly). Three kinds (default
-    // mix at 40 tokens: 20 / 10 / 10):
-    //   food      → grow 1, +1 energy (boost card)
-    //   ×2 food   → grow 2, +1 energy
-    //   ×2 energy → grow 0, +2 energy
-    const nodeOrder = rngShuffle(rng, this.spawnNodes.map((_, i) => i));
-    const total = cfg.totalFoodTokens;
-    const n2energy = Math.round(total * (cfg.x2EnergyPercent ?? 25) / 100);
-    const n2food = Math.min(total - n2energy, Math.round(total * (cfg.x2FoodPercent ?? 25) / 100));
-    const nFood = total - n2energy - n2food;
-    this.reserve = [];              // tokens currently OFF the board
-    let id = 0;
-    const mint = (n, kind, value) => { for (let i = 0; i < n; i++) this.reserve.push({ id: id++, kind, value }); };
-    mint(nFood, 'food', 1); mint(n2food, 'food', 2); mint(n2energy, 'energy', 2);
-    this.reserve.forEach((t, i) => { t.nodeIdx = nodeOrder[i % nodeOrder.length]; });
-    rngShuffle(rng, this.reserve);
+    // ── printed food: the SAME fixed layout on every mini-board (farthest-
+    // point sampled, deterministic). Spots never deplete — a snake covering
+    // one just blocks it until the cell frees up. The first sampled spots
+    // (centre-first) are the ×2 food. ──
+    this.spots = new Map();          // cellKey → { kind:'food', value:1|2 } — static
+    const perTile = Math.min(cfg.foodSpotsPerTile, t * t);
+    const n2 = Math.round(perTile * (cfg.x2FoodPercent ?? 20) / 100);
+    const layout = computeSpawnNodes(t, perTile);
+    for (const tile of this.tiles) {
+      layout.forEach((c, i) => {
+        this.spots.set(cellKey(tile.x0 + c.x, tile.y0 + c.y), { kind: 'food', value: i < n2 ? 2 : 1 });
+      });
+    }
 
-    // cellKey → { kind:'food'|'energy'|'bounty', value, token?, ownerSeat? }
+    // dynamic pickups (one-shot): bounty chips from deaths + the N−1 starting
+    // ×2-energy tokens. cellKey → { kind:'energy'|'bounty', value, ownerSeat? }
     this.food = new Map();
   }
 
   /* ── setup ─────────────────────────────────────────────────────────── */
 
-  /** Deal the opening board: round 1 + starting food. Snakes are placed
-      afterwards through the normal placement flow (respawnDead / placeSnake),
-      so the placement rule — not the stomp rule — resolves any conflicts. */
+  /** Deal the opening board: round 1, plus N−1 one-shot ×2-energy tokens
+      scattered on random cells that aren't printed food spots. Snakes place
+      afterwards through the normal placement flow. */
   setup() {
     this.round = 1;
-    let placed = 0;
-    for (let i = 0; i < this.reserve.length && placed < this.cfg.startingFoodInPlay;) {
-      const tok = this.reserve[i];
-      if (this.tryPlaceToken(tok)) { this.reserve.splice(i, 1); placed++; }
-      else i++;                      // node blocked → token stays in reserve
+    const free = [...this.valid].filter((k) => !this.spots.has(k));
+    rngShuffle(this.rng, free);
+    const n = Math.max(0, this.players.length - 1);   // N−1 energy tokens
+    for (let i = 0; i < n && i < free.length; i++) {
+      this.food.set(free[i], { kind: 'energy', value: 2 });
     }
     return [];
   }
 
   /* ── small helpers ─────────────────────────────────────────────────── */
 
-  inBounds(x, y) { return x >= 0 && y >= 0 && x < this.N && y < this.N; }
+  inBounds(x, y) { return x >= 0 && y >= 0 && x < this.W && y < this.H && this.valid.has(cellKey(x, y)); }
+
+  /** Whatever is edible at a cell: a one-shot pickup covers the printed spot. */
+  edibleAt(k) { return this.food.get(k) ?? this.spots.get(k) ?? null; }
 
   /** Multiset of occupied cells across all living snakes (stacked spawns count > 1). */
   occupancy() {
@@ -634,16 +652,6 @@ class Engine {
     return pts;
   }
 
-  /** Try to spawn a reserve token at its pre-assigned node. Stomp rule:
-      fails if the node holds a snake (head/body), a bounty chip, or any food. */
-  tryPlaceToken(tok) {
-    const node = this.spawnNodes[tok.nodeIdx];
-    const k = cellKey(node.x, node.y);
-    if (this.food.has(k) || this.occupancy().has(k)) return false;
-    this.food.set(k, { kind: tok.kind, value: tok.value, token: tok });
-    return true;
-  }
-
   /* ── spawning ──────────────────────────────────────────────────────── */
 
   /** Spawn footprint: a contiguous chain of up to 3 distinct cells, head
@@ -660,24 +668,24 @@ class Engine {
   }
 
   /** Validate a full placement chain [head, …]: the right number of DISTINCT
-      cells, each orthogonally adjacent to the previous, all in-bounds and
-      empty of snakes AND food — and the head must not be facing food. */
+      contiguous cells, in-bounds, free of snakes and one-shot pickups, and
+      at least one cell must touch a CORNER of some mini-board. Printed food
+      spots may be covered — a placement never eats what it covers. */
   validChain(cells) {
     if (!Array.isArray(cells) || cells.length !== this.spawnFootprint()) return false;
     const occ = this.occupancy();
     const seen = new Set();
+    let touchesCorner = false;
     for (let i = 0; i < cells.length; i++) {
       const c = cells[i];
       if (!this.inBounds(c.x, c.y)) return false;
       const k = cellKey(c.x, c.y);
-      if (seen.has(k) || occ.has(k) || this.food.has(k)) return false;
+      if (seen.has(k) || occ.has(k) || this.food.has(k)) return false;   // pickups block; spots don't
       seen.add(k);
+      if (this.corners.has(k)) touchesCorner = true;
       if (i > 0 && Math.abs(c.x - cells[i - 1].x) + Math.abs(c.y - cells[i - 1].y) !== 1) return false;
     }
-    const d = DIRS[this.chainFacing(cells)];
-    const fx = cells[0].x + d.dx, fy = cells[0].y + d.dy;
-    if (this.inBounds(fx, fy) && this.food.has(cellKey(fx, fy))) return false;
-    return true;
+    return touchesCorner;
   }
 
   /** Place a dead player's snake along `cells` (head first). Returns the
@@ -701,9 +709,9 @@ class Engine {
   smartPlacement() {
     const L = this.spawnFootprint();
     const candidates = [];
-    const order = rngShuffle(this.rng, Array.from({ length: this.N * this.N }, (_, i) => i));
-    for (const ci of order) {
-      const head = { x: ci % this.N, y: Math.floor(ci / this.N) };
+    const order = rngShuffle(this.rng, [...this.valid]);
+    for (const k of order) {
+      const head = { x: k & 63, y: k >> 6 };
       const grow = (chain) => {                        // depth ≤ 2: enumerates bends too
         if (chain.length === L) { if (this.validChain(chain)) candidates.push(chain); return; }
         const last = chain[chain.length - 1];
@@ -718,7 +726,9 @@ class Engine {
     }
     if (!candidates.length) return null;
     const occ = this.occupancy();
-    const foods = [...this.food.keys()].map((k) => ({ x: k & 63, y: k >> 6 }));
+    const foods = [...this.food.keys(), ...this.spots.keys()]
+      .filter((k) => !occ.has(k))
+      .map((k) => ({ x: k & 63, y: k >> 6 }));
     let best = null, bestScore = -Infinity;
     for (const chain of candidates) {
       const h = chain[0];
@@ -734,7 +744,7 @@ class Engine {
           seen.add(k); q.push({ x: nx, y: ny });
         }
       }
-      let foodDist = this.N;
+      let foodDist = this.W + this.H;
       for (const f of foods) foodDist = Math.min(foodDist, Math.abs(f.x - h.x) + Math.abs(f.y - h.y));
       const fd = DIRS[this.chainFacing(chain)];
       const fx = h.x + fd.dx, fy = h.y + fd.dy;
@@ -760,10 +770,16 @@ class Engine {
 
   /* ── tick resolution ───────────────────────────────────────────────── */
 
+  /** Reset the per-round free boost for everyone (call at each round start). */
+  startRound() {
+    for (const p of this.players) p.freeBoostsUsed = 0;
+  }
+
   /**
-   * Start resolving command slot `tickIdx`. A boost slot spends ONE boost
-   * card to slide `boostDistance` cells; a boost the player can't afford
-   * (no card in hand) downgrades to a normal 1-cell move.
+   * Start resolving command slot `tickIdx`. Every player always has
+   * `freeBoostsPerRound` boost(s) (their own permanent boost card); extra
+   * boosts spend BANKED cards drawn from ×2-energy tokens. An unaffordable
+   * boost downgrades to a normal 1-cell move.
    */
   beginTick(tickIdx) {
     const acts = [];
@@ -773,8 +789,9 @@ class Engine {
       let steps = 1, boost = false;
       if (cmd.dir == null) {
         steps = 0;                                   // stay put: player locked fewer moves
-      } else if (cmd.boost && p.boosts >= 1) {
-        p.boosts -= 1;                               // spend a boost card
+      } else if (cmd.boost && (p.freeBoostsUsed < this.cfg.freeBoostsPerRound || p.boosts >= 1)) {
+        if (p.freeBoostsUsed < this.cfg.freeBoostsPerRound) p.freeBoostsUsed++;
+        else p.boosts -= 1;                          // spend a banked card
         steps = this.cfg.boostDistance;
         boost = true;
         this.stats.boostExecuted++;
@@ -836,7 +853,7 @@ class Engine {
       m.tx = m.p.body[0].x + d.dx;
       m.ty = m.p.body[0].y + d.dy;
       m.inB = this.inBounds(m.tx, m.ty);
-      m.token = m.inB ? this.food.get(cellKey(m.tx, m.ty)) : null;
+      m.token = m.inB ? this.edibleAt(cellKey(m.tx, m.ty)) : null;
       let grow = 0;
       if (m.token && m.token.kind !== 'energy') {              // food & bounty grow; energy doesn't
         const room = this.cfg.maxSnakeLength - m.p.body.length;
@@ -880,27 +897,23 @@ class Engine {
       p.body.unshift({ x: m.tx, y: m.ty });
       p.facing = m.dir;
       const f = m.token;
-      if (!f) continue;                                     // no token here → tail already re-placed
+      if (!f) continue;                                     // nothing edible → tail already re-placed
       const k = cellKey(m.tx, m.ty);
-      this.food.delete(k);
+      // one-shot pickups (bounty chips, energy tokens) leave the game;
+      // printed food SPOTS persist — they're just covered while occupied
+      if (this.food.has(k)) this.food.delete(k);
       const at = { x: m.tx, y: m.ty };
 
-      // Every token pays energy (boost cards): ×2 energy pays 2, all food
-      // and bounty chips pay 1.
-      const gain = f.kind === 'energy' ? f.value : 1;
-      p.boosts = Math.min(this.cfg.maxBoostCards, p.boosts + gain);
-
       if (f.kind === 'energy') {
-        // ×2 energy token: cards only, no growth (tail already cleared).
-        this.reserve.push(f.token);
+        // ×2 energy token: +2 banked boost cards, no growth (tail cleared).
+        p.boosts = Math.min(this.cfg.maxBoostCards, p.boosts + f.value);
         events.push({ t: 'boostDraw', seat: p.seat, at, value: f.value });
         continue;
       }
 
-      // FOOD / BOUNTY: grow by growUnits (head unshift is unit #1; each extra
-      // stacks behind the head). Units that don't fit the cap convert to
-      // immediate points; a snake AT the cap scores its full value.
-      if (f.kind === 'food') this.reserve.push(f.token);    // food tokens rejoin the pool; bounty leaves for good
+      // FOOD SPOT / BOUNTY CHIP: growth only (no energy). Grow by growUnits
+      // (head unshift is unit #1; each extra stacks behind the head); units
+      // that don't fit the cap convert to immediate points.
       for (let u = 1; u < m.growUnits; u++) p.body.splice(2, 0, { x: p.body[1].x, y: p.body[1].y });
       const pointUnits = f.value - m.growUnits;             // overflow at/near the cap
       if (pointUnits > 0) {
@@ -929,7 +942,7 @@ class Engine {
     p.body.slice(1).forEach((c, i) => {
       if (i % 2 !== 0) return;                         // every other piece only
       const k = cellKey(c.x, c.y);
-      if (seen.has(k) || this.food.has(k)) return;     // dedupe stacked spawn cells
+      if (seen.has(k) || this.food.has(k)) return;     // dedupe stacks; never stack two pickups
       seen.add(k);
       this.food.set(k, { kind: 'bounty', value: 2, ownerSeat: p.seat });
       chips.push({ ...c });
@@ -964,28 +977,12 @@ class Engine {
   /* ── end of round ──────────────────────────────────────────────────── */
 
   /**
-   * After the final command slot resolves:
-   *   1. roll ceil(reserve/2) random tokens at their pre-assigned nodes
-   *      (stomp rule: blocked tokens bounce back to the reserve)
-   *   2. enforce the maxRounds guard
-   *   3. advance the round (respawn placement is the caller's job — bots
-   *      auto-place, humans place interactively at the top of the round)
+   * After the final command slot resolves there is NO token upkeep — printed
+   * food never depletes and pickups are one-shot. Just enforce the maxRounds
+   * guard and advance the round (respawn placement is the caller's job).
    */
   nextRound() {
     const events = [];
-    const half = Math.ceil(this.reserve.length / 2);
-    rngShuffle(this.rng, this.reserve);
-    const spawned = [];
-    // iterate a snapshot: tryPlaceToken mutates food, we mutate reserve
-    for (const tok of this.reserve.slice(0, half)) {
-      if (this.tryPlaceToken(tok)) {
-        this.reserve.splice(this.reserve.indexOf(tok), 1);
-        const n = this.spawnNodes[tok.nodeIdx];
-        spawned.push({ x: n.x, y: n.y });
-      }
-    }
-    if (spawned.length) events.push({ t: 'foodSpawn', cells: spawned });
-
     if (this.round >= this.cfg.maxRounds) {
       events.push(...this.endGame('roundcap'));
       return { events };
@@ -994,9 +991,9 @@ class Engine {
     return { events };
   }
 
-  /* ── quick board metrics (simulation token density) ────────────────── */
+  /* ── quick board metrics (simulation pickup density) ───────────────── */
   foodCounts() {
-    let neutral = 0, bounty = 0;   // "neutral" = any pool token (food or boost) on the board
+    let neutral = 0, bounty = 0;   // neutral = un-eaten ×2-energy tokens; bounty = chips
     for (const f of this.food.values()) f.kind === 'bounty' ? bounty++ : neutral++;
     return { neutral, bounty };
   }
@@ -1015,7 +1012,7 @@ class Engine {
    ════════════════════════════════════════════════════════════════════════ */
 const Bot = {
   plan(engine, p) {
-    const { cfg, rng, N } = engine;
+    const { cfg, rng } = engine;
     const cmds = [];
 
     // frozen snapshot of every OTHER living snake
@@ -1032,15 +1029,20 @@ const Bot = {
     };
     for (const c of own) bump(cellKey(c.x, c.y), +1);
 
-    // token cells this plan hasn't already "eaten" (food, boost, or bounty)
+    // edible cells this plan hasn't already "eaten": one-shot pickups plus
+    // printed food spots that aren't currently covered by a snake
+    const occNow = engine.occupancy();
     const foods = [];
     for (const [k, f] of engine.food) foods.push({ x: k & 63, y: k >> 6, k, kind: f.kind, value: f.value });
+    for (const [k, f] of engine.spots) if (!occNow.has(k) && !engine.food.has(k))
+      foods.push({ x: k & 63, y: k >> 6, k, kind: f.kind, value: f.value });
     const eaten = new Set();
 
-    let boosts = p.boosts;
+    let freeLeft = cfg.freeBoostsPerRound - p.freeBoostsUsed;   // the always-available boost(s)
+    let bank = p.boosts;
 
     const blocked = (x, y, tailK) => {
-      if (x < 0 || y < 0 || x >= N || y >= N) return true;
+      if (!engine.inBounds(x, y)) return true;
       const k = cellKey(x, y);
       if (others.has(k)) return true;
       // own cells block too — except the tail cell about to clear (one instance)
@@ -1080,16 +1082,16 @@ const Bot = {
         } else {
           dir = rngPick(rng, safe);
         }
-        // 3) boost trigger: hold a card + clear line of sight + 25% roll
-        if (boosts >= 1 && rng() < 0.25) {
+        // 3) boost trigger: a boost available + clear line of sight + 25% roll
+        if ((freeLeft > 0 || bank > 0) && rng() < 0.25) {
           let clear = true;
           for (let s = 1; s <= cfg.boostDistance; s++) {
             const tx = head.x + DIRS[dir].dx * s, ty = head.y + DIRS[dir].dy * s;
-            if (tx < 0 || ty < 0 || tx >= N || ty >= N) { clear = false; break; }
+            if (!engine.inBounds(tx, ty)) { clear = false; break; }
             const k = cellKey(tx, ty);
             if (others.has(k) || ownCount.get(k)) { clear = false; break; }   // conservative: ignores own tail clearing
           }
-          if (clear) { boost = true; boosts -= 1; }
+          if (clear) { boost = true; if (freeLeft > 0) freeLeft--; else bank--; }
         }
       }
 
@@ -1097,7 +1099,7 @@ const Bot = {
       const steps = boost ? cfg.boostDistance : 1;
       for (let s = 0; s < steps; s++) {
         const nx = own[0].x + DIRS[dir].dx, ny = own[0].y + DIRS[dir].dy;
-        if (nx < 0 || ny < 0 || nx >= N || ny >= N) break;   // planner walked off — engine will handle the death
+        if (!engine.inBounds(nx, ny)) break;   // planner walked off — engine will handle the death
         const k = cellKey(nx, ny);
         const tok = foods.find((f) => f.k === k && !eaten.has(f.k));
         // grow only on food/bounty with room; boost tokens draw cards instead
@@ -1106,7 +1108,7 @@ const Bot = {
         own.unshift({ x: nx, y: ny }); bump(k, +1);
         if (tok) {
           eaten.add(k);
-          boosts = Math.min(cfg.maxBoostCards, boosts + (tok.kind === 'energy' ? tok.value : 1));
+          if (tok.kind === 'energy') bank = Math.min(cfg.maxBoostCards, bank + tok.value);
         }
         if (grow > 0) { for (let u = 1; u < grow; u++) { const nk = cellKey(own[1].x, own[1].y); own.splice(2, 0, { ...own[1] }); bump(nk, +1); } }
         else { const t = own.pop(); bump(cellKey(t.x, t.y), -1); }
@@ -1129,7 +1131,8 @@ function runHeadlessGame(cfg, seed) {
   e.setup();
 
   while (!e.gameOver) {
-    // top of the round: everyone off the board picks a placement…
+    // top of the round: free boosts refresh, everyone off the board places…
+    e.startRound();
     e.respawnDead();
     // …then every living bot writes its strip
     for (const p of e.players) p.commands = p.alive ? Bot.plan(e, p) : null;
@@ -1260,7 +1263,7 @@ const Sound = {
 
 /* ════════════════════════════════════════════════════════════════════════
    §6 CANVAS RENDERER
-   Full-state redraw each frame: grid → spawn nodes → food/bounty → snakes
+   Full-state redraw each frame: mini-boards → printed spots → pickups → snakes
    → transient effects (death rings, boost trails).
    ════════════════════════════════════════════════════════════════════════ */
 const Renderer = {
@@ -1275,15 +1278,21 @@ const Renderer = {
     this.fit();
   },
 
-  /** Size the square canvas to the container at device-pixel sharpness. */
+  /** Size the canvas to the container at the board's W:H aspect. */
   fit() {
     const wrap = $('boardWrap');
-    const size = Math.max(180, Math.min(wrap.clientWidth, wrap.clientHeight) - 24);
+    const availW = Math.max(180, wrap.clientWidth - 24);
+    const availH = Math.max(180, wrap.clientHeight - 24);
+    const W = LIVE.engine ? LIVE.engine.W : 8, H = LIVE.engine ? LIVE.engine.H : 8;
+    const cell = Math.min(availW / W, availH / H);
+    const cssW = cell * W, cssH = cell * H;
     const dpr = window.devicePixelRatio || 1;
-    this.canvas.style.width = this.canvas.style.height = `${size}px`;
-    this.canvas.width = this.canvas.height = Math.round(size * dpr);
+    this.canvas.style.width = `${cssW}px`;
+    this.canvas.style.height = `${cssH}px`;
+    this.canvas.width = Math.round(cssW * dpr);
+    this.canvas.height = Math.round(cssH * dpr);
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    this.cssSize = size;
+    this.cssW = cssW; this.cssH = cssH;
     this.draw(LIVE.engine);
   },
 
@@ -1295,49 +1304,51 @@ const Renderer = {
   draw(engine) {
     const ctx = this.ctx;
     if (!ctx) return;
-    const size = this.cssSize;
-    ctx.clearRect(0, 0, size, size);
-    // empty-slate background even with no game yet
-    this.N = engine ? engine.N : 12;
-    this.cell = size / this.N;
+    const W = engine ? engine.W : 8, H = engine ? engine.H : 8;
+    this.cell = Math.min((this.cssW ?? 400) / W, (this.cssH ?? 400) / H);
     const s = this.cell;
+    ctx.clearRect(0, 0, this.cssW ?? 400, this.cssH ?? 400);
 
-    // board background + subtle checker
-    ctx.fillStyle = '#0b1220';
-    ctx.fillRect(0, 0, size, size);
-    ctx.fillStyle = 'rgba(255,255,255,0.018)';
-    for (let y = 0; y < this.N; y++) for (let x = 0; x < this.N; x++)
-      if ((x + y) % 2) ctx.fillRect(this.px(x), this.px(y), s, s);
+    // mini-board cells on a void background (cells outside tiles are walls)
+    ctx.fillStyle = '#05080f';
+    ctx.fillRect(0, 0, W * s, H * s);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      if (engine && !engine.valid.has(cellKey(x, y))) continue;
+      ctx.fillStyle = (x + y) % 2 ? '#0d1526' : '#0b1220';
+      ctx.fillRect(this.px(x), this.px(y), s, s);
+    }
 
-    // hairline grid
+    // hairline grid over valid area + bold seams at mini-board edges
     ctx.strokeStyle = 'rgba(148,163,184,0.08)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    for (let i = 1; i < this.N; i++) {
-      ctx.moveTo(this.px(i) + .5, 0); ctx.lineTo(this.px(i) + .5, size);
-      ctx.moveTo(0, this.px(i) + .5); ctx.lineTo(size, this.px(i) + .5);
-    }
+    for (let i = 1; i < W; i++) { ctx.moveTo(this.px(i) + .5, 0); ctx.lineTo(this.px(i) + .5, H * s); }
+    for (let i = 1; i < H; i++) { ctx.moveTo(0, this.px(i) + .5); ctx.lineTo(W * s, this.px(i) + .5); }
     ctx.stroke();
     if (!engine) return;
+    ctx.strokeStyle = 'rgba(148,163,184,0.3)';
+    ctx.lineWidth = 1.5;
+    for (const tile of engine.tiles)
+      ctx.strokeRect(this.px(tile.x0) + .75, this.px(tile.y0) + .75, engine.tileSize * s - 1.5, engine.tileSize * s - 1.5);
 
-    // spawn nodes: faint rings (+ index when the board is roomy)
-    ctx.strokeStyle = 'rgba(148,163,184,0.28)';
-    ctx.fillStyle = 'rgba(148,163,184,0.5)';
-    ctx.lineWidth = 1;
-    engine.spawnNodes.forEach((n, i) => {
-      ctx.beginPath();
-      ctx.arc(this.center(n.x), this.center(n.y), s * 0.15, 0, Math.PI * 2);
-      ctx.stroke();
-      if (s >= 30) {
-        ctx.font = `${Math.max(7, s * 0.2)}px system-ui`;
+    // printed food spots (persist forever; drawn under snakes & pickups)
+    for (const [k, f] of engine.spots) {
+      const x = this.center(k & 63), y = this.center(k >> 6);
+      ctx.save();
+      ctx.fillStyle = f.value === 2 ? '#b45309' : '#92650a';
+      ctx.beginPath(); ctx.arc(x, y, s * 0.2, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = f.value === 2 ? '#fbbf24' : '#f59e0b';
+      ctx.beginPath(); ctx.arc(x, y, s * 0.145, 0, Math.PI * 2); ctx.fill();
+      if (f.value === 2) {
+        ctx.fillStyle = '#451a03';
+        ctx.font = `bold ${Math.max(7, s * 0.2)}px system-ui`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.globalAlpha = 0.45;
-        ctx.fillText(String(i + 1), this.center(n.x), this.center(n.y));
-        ctx.globalAlpha = 1;
+        ctx.fillText('2', x, y + 0.5);
       }
-    });
+      ctx.restore();
+    }
 
-    // tokens: amber food pellets, violet boost bolts, player-coloured bounty
+    // one-shot pickups: violet ×2-energy tokens, player-coloured bounty
     const stamp2 = (x, y, col) => {                 // little "2" badge for value-2 tokens
       ctx.fillStyle = col;
       ctx.font = `bold ${Math.max(7, s * 0.2)}px system-ui`;
@@ -1361,17 +1372,6 @@ const Renderer = {
         ctx.closePath(); ctx.fill();
         ctx.restore();
         if (f.value === 2) stamp2(x, y, '#5b21b6');
-      } else if (f.kind === 'food') {
-        // food token: golden pellet with a bright core
-        ctx.save();
-        ctx.shadowColor = '#f59e0b'; ctx.shadowBlur = s * 0.3;
-        ctx.fillStyle = '#f59e0b';
-        ctx.beginPath(); ctx.arc(x, y, s * 0.21, 0, Math.PI * 2); ctx.fill();
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = '#fde68a';
-        ctx.beginPath(); ctx.arc(x - s * 0.05, y - s * 0.05, s * 0.08, 0, Math.PI * 2); ctx.fill();
-        ctx.restore();
-        if (f.value === 2) stamp2(x, y, '#92400e');
       } else {
         // bounty: player-colored diamond with a white ring (worth double)
         const col = SEAT_COLORS[f.ownerSeat].bright;
@@ -1514,7 +1514,7 @@ const LIVE = {
     this.engine = new Engine(cfg, seats, mulberry32((Math.random() * 0xffffffff) >>> 0));
     const events = this.engine.setup();
     clearLog();
-    log(`— New game · ${cfg.boardSize}×${cfg.boardSize} · ${cfg.playerCount} players · first to ${cfg.pointsToWin} pts —`);
+    log(`— New game · ${cfg.playerCount} mini-boards of ${cfg.tileSize}×${cfg.tileSize} · first to ${cfg.pointsToWin} pts —`);
     consumeEvents(events);
     this.multiHuman = seats.filter((s) => !s.isBot).length > 1;
     Renderer.effects = [];
@@ -1537,6 +1537,7 @@ const LIVE = {
     const e = this.engine;
     this.phase = 'programming';
     for (const p of e.players) { p.locked = false; p.commands = null; }
+    e.startRound();                                  // free boosts refresh each round
     // dead bots auto-place immediately; dead humans place during their turn
     consumeEvents(e.respawnDead((p) => p.isBot));
     Renderer.draw(e);
@@ -1614,14 +1615,6 @@ const LIVE = {
     const adjacent = last && Math.abs(cell.x - last.x) + Math.abs(cell.y - last.y) === 1;
 
     if (chain.length && adjacent && emptyCell && !inChain) {
-      if (chain.length === 1) {
-        // neck chosen → head facing is now known; it may not stare at food
-        const fx = chain[0].x + (chain[0].x - cell.x), fy = chain[0].y + (chain[0].y - cell.y);
-        if (e.inBounds(fx, fy) && e.food.has(cellKey(fx, fy))) {
-          log('🚫 that neck would leave the head facing food — pick another cell');
-          return;
-        }
-      }
       chain.push({ ...cell });
       if (chain.length === e.spawnFootprint()) {
         const ev = e.placeSnake(e.players[this.currentHuman], chain.map((c) => ({ ...c })));
@@ -1841,7 +1834,8 @@ function renderHumanStrip() {
   const p = e.players[LIVE.currentHuman];
   const draftMoveCount = LIVE.draft.filter((d) => d.dir).length;
   const boostCount = LIVE.draft.filter((d) => d.dir && d.boost).length;  // stays drop their boost at lock
-  const overBudget = boostCount > p.boosts;
+  const budget = e.cfg.freeBoostsPerRound + p.boosts;
+  const overBudget = boostCount > budget;
   $('stripArea').innerHTML = `
     <div class="max-w-3xl mx-auto fade-in">
       <div class="flex items-center gap-2 mb-2 text-sm">
@@ -1849,8 +1843,8 @@ function renderHumanStrip() {
         <b>${esc(p.name)}</b>
         <span class="text-slate-400 text-xs">program 2–${e.cfg.commandSlots} moves · empty slots stop in place</span>
         <span class="ml-auto text-xs ${overBudget ? 'text-rose-400 font-bold' : 'text-slate-400'}">
-          ⚡ energy ${boostCount}/${p.boosts} boost cards
-          ${overBudget ? ' — not enough cards: extra boosts will downgrade!' : ''}
+          ⚡ boosts ${boostCount}/${budget} (${e.cfg.freeBoostsPerRound} free + ${p.boosts} banked)
+          ${overBudget ? ' — over budget: extra boosts will downgrade!' : ''}
         </span>
       </div>
       <div class="flex items-start gap-2 flex-wrap">
@@ -1932,7 +1926,7 @@ function renderPlacementStrip() {
         <span class="w-3 h-3 rounded-full" style="background:${p.color}"></span>
         <b>${esc(p.name)}</b>
         <span class="text-slate-400 text-xs">🐣 place your snake — ${stepText}</span>
-        <span class="ml-auto text-[11px] text-slate-500">${need} contiguous empty cells · the head points away from its neck &amp; can't face food</span>
+        <span class="ml-auto text-[11px] text-slate-500">${need} contiguous cells touching any mini-board corner · covered food isn't eaten</span>
       </div>
       <div class="flex items-center gap-3">
         <div class="flex gap-1.5">${pips}</div>
@@ -2040,7 +2034,7 @@ function renderScoreboard() {
     const state = !p.alive ? (LIVE.phase === 'gameover' ? '💀' : '💀 respawning')
       : LIVE.phase === 'programming' ? (p.locked ? '🔒 locked' : '✏️ programming')
       : '';
-    const cap = Math.min(e.cfg.maxBoostCards, 10);
+    const cap = Math.max(1, Math.min(e.cfg.maxBoostCards, 10));
     const pips = Array.from({ length: cap }, (_, i) =>
       `<span class="inline-block w-1.5 h-3 rounded-sm ${i < p.boosts ? 'bg-violet-400' : 'bg-slate-700'}"></span>`).join('');
     return `
@@ -2052,7 +2046,7 @@ function renderScoreboard() {
           <span class="text-[10px] text-slate-500">/${e.cfg.pointsToWin}</span>
         </div>
         <div class="flex items-center gap-2 mt-1 text-[11px] text-slate-400">
-          <span title="energy (boost cards)" class="flex gap-px items-center">${pips}</span>
+          <span title="banked boost cards (everyone also gets 1 free boost per round)" class="flex gap-px items-center">${pips}</span>
           <span title="length">🐍 ${p.alive ? p.body.length : '—'}</span>
           <span title="deaths">💀 ${p.deaths}</span>
           <span class="ml-auto text-[10px] ${p.locked && p.alive ? 'text-emerald-400' : 'text-slate-500'}">${state}</span>
@@ -2109,10 +2103,6 @@ function consumeEvents(events) {
       log(`🐣 ${esc(e.players[ev.seat].name)} placed at (${ev.at.x + 1},${ev.at.y + 1})`, e.players[ev.seat].color);
     }
     else if (ev.t === 'noSpawn') log(`⛔ ${esc(e.players[ev.seat].name)} found no room to spawn — waiting a round`);
-    else if (ev.t === 'foodSpawn') {
-      sounds.add('sprinkle');
-      log(`🍯 ${ev.cells.length} food token${ev.cells.length > 1 ? 's' : ''} spawned from the reserve`);
-    }
   }
   sounds.forEach((s) => Sound.play(s));
 }
@@ -2173,7 +2163,7 @@ function renderSimResults(a) {
     <div class="space-y-4 fade-in">
       <div class="flex items-baseline gap-3 flex-wrap">
         <h2 class="text-lg font-bold text-white">Simulation results</h2>
-        <span class="text-xs text-slate-500">${a.runs} games · ${a.cfg.boardSize}×${a.cfg.boardSize} board · ${a.cfg.playerCount} bots ·
+        <span class="text-xs text-slate-500">${a.runs} games · ${a.cfg.playerCount} mini-boards of ${a.cfg.tileSize}×${a.cfg.tileSize} · ${a.cfg.playerCount} bots ·
           first to ${a.cfg.pointsToWin} pts · ${fmt1(a.ms)} ms total (${fmt1(a.ms / a.runs)} ms/game)</span>
       </div>
 
@@ -2222,12 +2212,12 @@ function renderSimResults(a) {
         </div>
         <!-- food density -->
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
-          <h3 class="text-sm font-semibold text-slate-200 mb-3">Tokens left on board at game end</h3>
+          <h3 class="text-sm font-semibold text-slate-200 mb-3">Pickups left at game end</h3>
           <div class="space-y-[6px] border-l border-slate-700 pl-2">
-            ${barRow('Pool tokens', a.foodNeutralSum / a.runs, a.cfg.totalFoodTokens, '#c98500', `${fmt1(a.foodNeutralSum / a.runs)} avg`)}
-            ${barRow('Bounty chips', a.foodBountySum / a.runs, a.cfg.totalFoodTokens, '#3987e5', `${fmt1(a.foodBountySum / a.runs)} avg`)}
+            ${barRow('×2 energy tokens', a.foodNeutralSum / a.runs, Math.max(1, a.cfg.playerCount - 1), '#c98500', `${fmt1(a.foodNeutralSum / a.runs)} avg`)}
+            ${barRow('Bounty chips', a.foodBountySum / a.runs, 20, '#3987e5', `${fmt1(a.foodBountySum / a.runs)} avg`)}
           </div>
-          <p class="text-[11px] text-slate-500 mt-3">Scale: ${a.cfg.totalFoodTokens} total neutral tokens in the system.</p>
+          <p class="text-[11px] text-slate-500 mt-3">Printed food spots never deplete — only one-shot pickups are counted here.</p>
         </div>
       </div>
     </div>`;
