@@ -116,15 +116,15 @@ function makeLayouts(t = 4, count = 6, boards = 6, seed = 20240719) {
 /* ════════════ 1) MINI-BOARDS ════════════ */
 function boardsHTML(layouts, t = 4) {
   const css = `
-    .sheet { width:8.5in; height:11in; padding:0.45in 0.35in; display:flex; flex-wrap:wrap;
-             align-content:flex-start; gap:0.3in; }
-    .mb { width:3.6in; height:3.6in; border:2px solid #111827; position:relative; background:#fff; }
+    .sheet { width:8.5in; height:11in; padding:0.15in; display:flex; flex-wrap:wrap;
+             align-content:flex-start; gap:0.2in; }
+    .mb { width:4in; height:4in; border:2px solid #111827; position:relative; background:#fff; }
     .cell { position:absolute; border:1px solid #cbd5e1; display:flex; align-items:center; justify-content:center; }
-    .spot { width:0.42in; height:0.42in; }
+    .spot { width:0.46in; height:0.46in; }
     .bid { position:absolute; top:2px; left:4px; font-size:6.5pt; font-weight:800; color:#cbd5e1; letter-spacing:.1em; }
-    .cap { width:100%; font-size:8.5pt; color:#6b7280; margin-bottom:-0.1in; }
+    .cap { width:100%; font-size:8.5pt; color:#6b7280; margin:0 0.2in -0.05in; }
   `;
-  const cellIn = 3.6 / t;
+  const cellIn = 4 / t;                      // 1.0in cells at the default 4×4
   const board = (layout, idx) => {
     const spots = new Set(layout.map((c) => c.y * t + c.x));
     let cells = '';
