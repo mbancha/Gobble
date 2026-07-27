@@ -6,7 +6,7 @@
 
 ## Components
 
-- **6 × Mini-boards** — 4×4 boards (7″ square), one per player. Each has **5 food spots printed on it**, and **4 of the 6 also have a BOOST space**. Every board's arrangement is different and rotationally asymmetric, so turning a board around changes the game. Everything printed is permanent — it never runs out and nothing is ever placed or removed. Printed food is **+1**; ×2 food comes only from bounty.
+- **6 × Mini-boards** — 4×4 boards (5.9″ square), one per player. Each has **5 food spots printed on it**, and **4 of the 6 also have a BOOST space**. Every board's arrangement is different and rotationally asymmetric, so turning a board around changes the game. Everything printed is permanent — it never runs out and nothing is ever placed or removed. Printed food is **+1**; ×2 food comes only from bounty.
 - **8 × Arrow card sets** — 6 arrow cards per player, in the player's colour.
 - **8 × Personal boost cards** — every player permanently owns **one boost card** (part of their hand, like the arrows — it comes back every round).
 - **1 × Boost deck** — a shared stack of generic "×3" boost cards, drawn from boost spaces and length milestones; these are **discarded after use**.

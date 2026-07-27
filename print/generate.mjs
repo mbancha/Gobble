@@ -1,6 +1,6 @@
 // Gobble — printable prototype asset generator (borderless, print-ready).
 // Renders six PDFs via headless Chromium's page.pdf(); all art inline SVG.
-//   gobble-mini-boards.pdf   — 6 boards (7in, one per sheet), each with its
+//   gobble-mini-boards.pdf   — 6 boards (5.9in square, one per sheet), each
 //                              own randomized food layout; 4 have a boost space
 //   gobble-player-cards.pdf  — 6 arrows + 1 personal boost per colour,
 //                              plus 20 generic boost cards
@@ -149,21 +149,21 @@ function makeBoostSpots(layouts, howMany = 4, t = 4, seed = 991) {
   });
 }
 
-/* ════════════ 1) MINI-BOARDS — 7in square, one per sheet ════════════ */
-function boardsHTML(layouts, boostSpots, t = 4) {
+/* ════════════ 1) MINI-BOARDS — one per sheet ════════════ */
+function boardsHTML(layouts, boostSpots, t = 4, SIDE = 5.9) {
   const css = `
     .sheet { width:8.5in; height:11in; padding:0.6in 0.75in; display:flex; flex-direction:column;
              align-items:center; }
-    .cap { width:7in; font-size:9pt; color:#6b7280; margin-bottom:0.16in; }
-    .mb { width:7in; height:7in; border:2.5px solid #111827; position:relative; background:#fff; }
+    .cap { width:${SIDE}in; font-size:9pt; color:#6b7280; margin-bottom:0.16in; }
+    .mb { width:${SIDE}in; height:${SIDE}in; border:2.5px solid #111827; position:relative; background:#fff; }
     .cell { position:absolute; border:1px solid #cbd5e1; display:flex; align-items:center; justify-content:center; }
-    .spot { width:0.8in; height:0.8in; }
-    .bspot { width:0.78in; height:0.78in; }
+    .spot { width:${SIDE * 0.114}in; height:${SIDE * 0.114}in; }
+    .bspot { width:${SIDE * 0.111}in; height:${SIDE * 0.111}in; }
     .blabel { position:absolute; bottom:0.06in; left:0; right:0; text-align:center;
               font-size:6.5pt; font-weight:800; letter-spacing:.1em; color:${GOLD}; }
     .bid { position:absolute; top:4px; left:7px; font-size:8pt; font-weight:800; color:#d1d5db; letter-spacing:.12em; }
   `;
-  const cellIn = 7 / t;                                  // 1.75in cells at 4×4
+  const cellIn = SIDE / t;                               // 1.475in cells at 5.9in / 4×4
   const board = (layout, idx) => {
     const spots = new Set(layout.map((c) => c.y * t + c.x));
     const boost = boostSpots[idx];
