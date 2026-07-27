@@ -1,10 +1,12 @@
 // Gobble — printable prototype asset generator (borderless, print-ready).
-// Renders five PDFs via headless Chromium's page.pdf(); all art inline SVG.
+// Renders six PDFs via headless Chromium's page.pdf(); all art inline SVG.
 //   gobble-mini-boards.pdf   — 6 boards (7in, one per sheet), each with its
 //                              own randomized food layout; 4 have a boost space
 //   gobble-player-cards.pdf  — 6 arrows + 1 personal boost per colour,
 //                              plus 20 generic boost cards
 //   gobble-card-update.pdf   — ONLY the 8 player-coloured boost cards
+//   gobble-temp-cards.pdf    — six colours' full hands (6 arrows + boost) on
+//                              ONE sheet, for a quick temporary PnP
 //   gobble-player-boards.pdf — 3 boards per Letter sheet, full-width track
 //   gobble-score-track.pdf   — uniform 10-per-row track to 100
 // Cards/tokens are squared, edge-to-edge with shared cut lines. Print at
@@ -240,6 +242,35 @@ function cardUpdateHTML() {
   return page('Gobble — Card Update (personal boosts)', cardCSS, body);
 }
 
+/* ════════════ 3b) TEMP CARD SHEET — six players' hands on ONE sheet ════════════
+   6 arrows + 1 personal boost per colour = 42 cards. A 6×7 grid of 1.4167in
+   squares is exactly 42 slots and the largest square that fits a Letter sheet
+   (7 across would force 1.21in). Cards are smaller than the main deck's 1.7in
+   — that's the price of one sheet. */
+function tempCardsHTML(names) {
+  const chosen = names.map((n) => PLAYERS.find((p) => p.name.toLowerCase() === n.toLowerCase()));
+  const S = 8.5 / 6;                                    // 1.4167in
+  const css = cardCSS + `
+    .grid { width:8.5in; }
+    .card { width:${S}in; height:${S}in; }
+    .card .ico { width:0.72in; height:0.72in; }
+    .frame { inset:4px; border-width:3px; }
+    .dot { width:9px; height:9px; }
+    .dot.tl{top:9px;left:9px} .dot.tr{top:9px;right:9px}
+    .dot.bl{bottom:9px;left:9px} .dot.br{bottom:9px;right:9px}
+    .tag { font-size:6.5pt; }
+    .name { font-size:6.5pt; }
+    .foot { font-size:7pt; }
+  `;
+  let body = `<div class="grid">`;
+  for (const p of chosen) {                             // 6 arrows then that colour's boost
+    for (let i = 0; i < 6; i++) body += arrowCard(p);
+    body += ownBoostCard(p);
+  }
+  body += `</div>`;
+  return page('Gobble — Temp Card Sheet', css, body);
+}
+
 /* ════════════ 4) PLAYER BOARDS — 3 per Letter sheet ════════════ */
 function playerBoardsHTML() {
   // one space per point value; a boost icon marks the lengths that award an
@@ -337,12 +368,15 @@ const jobs = [
   { name: 'gobble-mini-boards.pdf', html: boardsHTML(layouts, boostSpots) },
   { name: 'gobble-player-cards.pdf', html: cardsHTML() },
   { name: 'gobble-card-update.pdf', html: cardUpdateHTML() },
+  { name: 'gobble-temp-cards.pdf', html: tempCardsHTML(['Silver', 'Brown', 'Blue', 'Orange', 'Red', 'Yellow']) },
   { name: 'gobble-player-boards.pdf', html: playerBoardsHTML() },
   { name: 'gobble-score-track.pdf', html: scoreHTML() },
 ];
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
 const pg = await browser.newPage();
+const only = process.argv[3];                          // optional: render just one file
 for (const j of jobs) {
+  if (only && !j.name.includes(only)) continue;
   await pg.setContent(j.html, { waitUntil: 'networkidle' });
   await pg.pdf({ path: path.join(OUT, j.name), format: 'Letter', printBackground: true,
     margin: { top: '0', bottom: '0', left: '0', right: '0' } });
