@@ -5,7 +5,7 @@ board game**, contained in a single HTML file.
 
 Every round, all players secretly program a strip of **2 to `commandSlots` cards** — arrows
 (move 1) and **Boost** cards (slide 3; everyone owns one that refreshes each round, extras
-are banked from ×2-energy tokens) — locking in fewer than the max stops you in place. The
+are banked from printed boost spaces and even-length milestones) — locking in fewer than the max stops you in place. The
 board is **one 4×4 mini-board per player**, tiled as close to a square as possible (3
 players = an L), with **food printed on fixed spots that never deplete** (each board's layout differs and is
 rotationally asymmetric) — covering a spot just blocks it. Boosts resolve before arrow moves each slot, so a booster claims contested
