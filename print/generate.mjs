@@ -368,7 +368,7 @@ const jobs = [
   { name: 'gobble-mini-boards.pdf', html: boardsHTML(layouts, boostSpots) },
   { name: 'gobble-player-cards.pdf', html: cardsHTML() },
   { name: 'gobble-card-update.pdf', html: cardUpdateHTML() },
-  { name: 'gobble-temp-cards.pdf', html: tempCardsHTML(['Silver', 'Brown', 'Blue', 'Orange', 'Red', 'Yellow']) },
+  { name: 'gobble-temp-cards.pdf', html: tempCardsHTML(['Silver', 'Brown', 'Blue', 'Orange', 'Red', 'Green']) },
   { name: 'gobble-player-boards.pdf', html: playerBoardsHTML() },
   { name: 'gobble-score-track.pdf', html: scoreHTML() },
 ];
