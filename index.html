@@ -371,12 +371,13 @@ const CONFIG_FIELDS = [
   { id: 'freeBoostsPerRound',  label: 'Free boosts / round',     min: 0,  max: 3,   def: 1,   group: 'Movement & boost', hint: 'Every player always has this boost — it refreshes each round' },
   { id: 'maxBoostCards',       label: 'Max banked energy',       min: 0,  max: 20,  def: 6,   group: 'Movement & boost', hint: 'Cap on EXTRA boost cards banked from ×2-energy tokens' },
   // ── printed food ──
-  { id: 'foodSpotsPerTile',    label: 'Food spots / mini-board', min: 1,  max: 16,  def: 6,   group: 'Printed food', hint: 'Fixed spots printed on every mini-board — they never deplete' },
+  { id: 'foodSpotsPerTile',    label: 'Food spots / mini-board', min: 1,  max: 16,  def: 5,   group: 'Printed food', hint: 'Fixed spots printed on every mini-board — they never deplete' },
+  { id: 'boostSpotPercent',    label: 'Boards with boost space (%)', min: 0, max: 100, def: 67, group: 'Printed food', hint: 'Share of mini-boards carrying a printed boost space (+1 card, never depletes)' },
   { id: 'x2FoodPercent',       label: '×2 food share (%)',       min: 0,  max: 100, def: 0,   group: 'Printed food', hint: 'Share of printed spots worth ×2 (0 by default — ×2 comes from bounty only)' },
   // ── match & guards ──
   { id: 'pointsToWin',         label: 'Points to win',           min: 10, max: 500, def: 70,  group: 'Match rules', hint: 'Instant victory threshold' },
-  { id: 'maxSnakeLength',      label: 'Max snake length',        min: 6,  max: 64,  def: 13,  group: 'Match rules', hint: 'Body-piece supply cap' },
-  { id: 'maxLengthFoodBonus',  label: 'Max-length food bonus',   min: 0,  max: 250, def: 10,  group: 'Match rules', hint: 'Points per food unit a capped snake eats (2× food = +20)' },
+  { id: 'maxSnakeLength',      label: 'Max snake length',        min: 6,  max: 64,  def: 14,  group: 'Match rules', hint: 'Body-piece supply cap' },
+  { id: 'maxLengthFoodBonus',  label: 'Max-length food bonus',   min: 0,  max: 250, def: 2,   group: 'Match rules', hint: 'Points per food unit a capped snake eats (a ×2 bounty chip = double)' },
   { id: 'maxRounds',           label: 'Max rounds (guard)',      min: 10, max: 500, def: 100, group: 'Match rules', hint: 'Highest score wins at the cap' },
   { id: 'panicSeconds',        label: 'Panic timer (s)',         min: 5,  max: 60,  def: 15,  group: 'Match rules', hint: 'Countdown once the first player locks' },
 ];
@@ -390,13 +391,12 @@ function triangularScoreTable(startLen = 3, maxLen = 13) {
   return rows;
 }
 
-/** Default score table: the physical prototype's ladder for lengths 5–13 —
-    1, 2, 3, 5, 7, 10, 13, 16, 20. */
+/** Default score table: one space per point value on the player board —
+    lengths 3–14 pay 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15. */
 const DEFAULT_SCORE_TABLE = [
-  { min: 1, pts: 0 },
-  { min: 5, pts: 1 }, { min: 6, pts: 2 }, { min: 7, pts: 3 }, { min: 8, pts: 5 },
-  { min: 9, pts: 7 }, { min: 10, pts: 10 }, { min: 11, pts: 13 }, { min: 12, pts: 16 },
-  { min: 13, pts: 20 },
+  { min: 3, pts: 1 }, { min: 4, pts: 2 }, { min: 5, pts: 3 }, { min: 6, pts: 4 },
+  { min: 7, pts: 5 }, { min: 8, pts: 6 }, { min: 9, pts: 7 }, { min: 10, pts: 8 },
+  { min: 11, pts: 9 }, { min: 12, pts: 10 }, { min: 13, pts: 12 }, { min: 14, pts: 15 },
 ];
 
 /** Build the sidebar inputs from the schema (one-time). */
@@ -628,11 +628,23 @@ class Engine {
     this.spots = new Map();          // cellKey → { kind:'food', value:1|2 } — static
     const perTile = Math.min(cfg.foodSpotsPerTile, t * t);
     const n2 = Math.round(perTile * (cfg.x2FoodPercent ?? 0) / 100);
-    for (const tile of this.tiles) {
-      randomFoodLayout(t, perTile, rng).forEach((c, i) => {
+    // …and a share of the boards also carry a printed BOOST space (+1 card,
+    // likewise permanent) on a cell with no food.
+    const nBoostBoards = Math.round(this.tiles.length * (cfg.boostSpotPercent ?? 67) / 100);
+    this.tiles.forEach((tile, ti) => {
+      const layout = randomFoodLayout(t, perTile, rng);
+      const taken = new Set(layout.map((c) => c.y * t + c.x));   // same encoding as `free` below
+      layout.forEach((c, i) => {
         this.spots.set(cellKey(tile.x0 + c.x, tile.y0 + c.y), { kind: 'food', value: i < n2 ? 2 : 1 });
       });
-    }
+      if (ti < nBoostBoards) {
+        const free = rngShuffle(rng, Array.from({ length: t * t }, (_, k) => k).filter((k) => !taken.has(k)));
+        if (free.length) {
+          const c = { x: free[0] % t, y: Math.floor(free[0] / t) };
+          this.spots.set(cellKey(tile.x0 + c.x, tile.y0 + c.y), { kind: 'boost', value: 1 });
+        }
+      }
+    });
 
     // dynamic pickups (one-shot): bounty chips from deaths + the N−1 starting
     // ×2-energy tokens. cellKey → { kind:'energy'|'bounty', value, ownerSeat? }
@@ -641,17 +653,11 @@ class Engine {
 
   /* ── setup ─────────────────────────────────────────────────────────── */
 
-  /** Deal the opening board: round 1, plus N−1 one-shot ×2-energy tokens
-      scattered on random cells that aren't printed food spots. Snakes place
-      afterwards through the normal placement flow. */
+  /** Deal the opening board: round 1. Nothing is scattered — every pickup is
+      either printed on a board or dropped by a death. Snakes place afterwards
+      through the normal placement flow. */
   setup() {
     this.round = 1;
-    const free = [...this.valid].filter((k) => !this.spots.has(k));
-    rngShuffle(this.rng, free);
-    const n = Math.max(0, this.players.length - 1);   // N−1 energy tokens
-    for (let i = 0; i < n && i < free.length; i++) {
-      this.food.set(free[i], { kind: 'energy', value: 2 });
-    }
     return [];
   }
 
@@ -883,7 +889,7 @@ class Engine {
       m.inB = this.inBounds(m.tx, m.ty);
       m.token = m.inB ? this.edibleAt(cellKey(m.tx, m.ty)) : null;
       let grow = 0;
-      if (m.token && m.token.kind !== 'energy') {              // food & bounty grow; energy doesn't
+      if (m.token && m.token.kind !== 'energy' && m.token.kind !== 'boost') {   // only food & bounty grow
         const room = this.cfg.maxSnakeLength - m.p.body.length;
         grow = Math.max(0, Math.min(m.token.value, room));
       }
@@ -932,8 +938,8 @@ class Engine {
       if (this.food.has(k)) this.food.delete(k);
       const at = { x: m.tx, y: m.ty };
 
-      if (f.kind === 'energy') {
-        // ×2 energy token: +2 banked boost cards, no growth (tail cleared).
+      if (f.kind === 'boost' || f.kind === 'energy') {
+        // printed boost space: +1 banked card, no growth (tail already cleared)
         p.boosts = Math.min(this.cfg.maxBoostCards, p.boosts + f.value);
         events.push({ t: 'boostDraw', seat: p.seat, at, value: f.value });
         continue;
@@ -942,7 +948,16 @@ class Engine {
       // FOOD SPOT / BOUNTY CHIP: growth only (no energy). Grow by growUnits
       // (head unshift is unit #1; each extra stacks behind the head); units
       // that don't fit the cap convert to immediate points.
+      const lenBefore = p.body.length - 1;                   // before this move's growth
       for (let u = 1; u < m.growUnits; u++) p.body.splice(2, 0, { x: p.body[1].x, y: p.body[1].y });
+      // milestone: reaching an even length awards an extra boost card
+      // (the boost icons under points 2, 4, 6, 8, 10 and 15 on the board)
+      for (let L = lenBefore + 1; L <= p.body.length; L++) {
+        if (L % 2 === 0 && L >= 4) {
+          p.boosts = Math.min(this.cfg.maxBoostCards, p.boosts + 1);
+          events.push({ t: 'milestone', seat: p.seat, len: L, at });
+        }
+      }
       const pointUnits = f.value - m.growUnits;             // overflow at/near the cap
       if (pointUnits > 0) {
         const pts = pointUnits * this.cfg.maxLengthFoodBonus;
@@ -1132,11 +1147,11 @@ const Bot = {
         const tok = foods.find((f) => f.k === k && !eaten.has(f.k));
         // grow only on food/bounty with room; boost tokens draw cards instead
         let grow = 0;
-        if (tok && tok.kind !== 'energy') grow = Math.max(0, Math.min(tok.value, cfg.maxSnakeLength - own.length));
+        if (tok && tok.kind !== 'energy' && tok.kind !== 'boost') grow = Math.max(0, Math.min(tok.value, cfg.maxSnakeLength - own.length));
         own.unshift({ x: nx, y: ny }); bump(k, +1);
         if (tok) {
           eaten.add(k);
-          if (tok.kind === 'energy') bank = Math.min(cfg.maxBoostCards, bank + tok.value);
+          if (tok.kind === 'energy' || tok.kind === 'boost') bank = Math.min(cfg.maxBoostCards, bank + tok.value);
         }
         if (grow > 0) { for (let u = 1; u < grow; u++) { const nk = cellKey(own[1].x, own[1].y); own.splice(2, 0, { ...own[1] }); bump(nk, +1); } }
         else { const t = own.pop(); bump(cellKey(t.x, t.y), -1); }
@@ -1359,9 +1374,23 @@ const Renderer = {
     for (const tile of engine.tiles)
       ctx.strokeRect(this.px(tile.x0) + .75, this.px(tile.y0) + .75, engine.tileSize * s - 1.5, engine.tileSize * s - 1.5);
 
-    // printed food spots (persist forever; drawn under snakes & pickups)
+    // printed spots (persist forever; drawn under snakes & pickups)
     for (const [k, f] of engine.spots) {
       const x = this.center(k & 63), y = this.center(k >> 6);
+      if (f.kind === 'boost') {                    // printed boost space: gold chevrons
+        ctx.save();
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = Math.max(1.5, s * 0.07);
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        for (let i = 0; i < 3; i++) {
+          const oy = y + (i - 1) * s * 0.16 + s * 0.05;
+          ctx.beginPath();
+          ctx.moveTo(x - s * 0.17, oy); ctx.lineTo(x, oy - s * 0.13); ctx.lineTo(x + s * 0.17, oy);
+          ctx.stroke();
+        }
+        ctx.restore();
+        continue;
+      }
       ctx.save();
       ctx.fillStyle = f.value === 2 ? '#b45309' : '#92650a';
       ctx.beginPath(); ctx.arc(x, y, s * 0.2, 0, Math.PI * 2); ctx.fill();
@@ -2114,7 +2143,12 @@ function consumeEvents(events) {
     else if (ev.t === 'boostDraw') {
       const p = e.players[ev.seat];
       sounds.add('bounty');
-      log(`⚡ ${esc(p.name)} grabbed a +2 boost token — draw ${ev.value} boost cards`, p.color);
+      log(`⚡ ${esc(p.name)} hit a boost space — draw ${ev.value} boost card${ev.value > 1 ? 's' : ''}`, p.color);
+    }
+    else if (ev.t === 'milestone') {
+      const p = e.players[ev.seat];
+      sounds.add('bounty');
+      log(`⚡ ${esc(p.name)} reached length ${ev.len} — take an extra boost card`, p.color);
     }
     else if (ev.t === 'bonus') {
       const p = e.players[ev.seat];

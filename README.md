@@ -10,8 +10,8 @@ board is **one 4×4 mini-board per player**, tiled as close to a square as possi
 players = an L), with **food printed on fixed spots that never deplete** (each board's layout differs and is
 rotationally asymmetric) — covering a spot just blocks it. Boosts resolve before arrow moves each slot, so a booster claims contested
 squares first. Dying flips every other body piece into one-shot ×2 bounty food and **banks
-points by length** (5→1 … 13→20); at **max length (13)** each food scores **+10 on the
-spot**. Respawns place any 3 contiguous cells **touching a mini-board corner**. First to
+points by length** (3→1 … 14→15); at **max length (14)** each food scores **+2 on the
+spot**, and every even length hands you a boost card. Respawns place any 3 contiguous cells **touching a mini-board corner**. First to
 the target (70) triggers the end; every living snake cashes out and the highest **total**
 wins. Mirrors the physical prototype in `RULES.md`.
 

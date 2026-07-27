@@ -1,11 +1,10 @@
 // Gobble — printable prototype asset generator (borderless, print-ready).
-// Renders six PDFs via headless Chromium's page.pdf(); all art inline SVG.
-//   gobble-mini-boards.pdf   — 6 boards, each with its own randomized,
-//                              rotationally-asymmetric food layout
+// Renders five PDFs via headless Chromium's page.pdf(); all art inline SVG.
+//   gobble-mini-boards.pdf   — 6 boards (7in, one per sheet), each with its
+//                              own randomized food layout; 4 have a boost space
 //   gobble-player-cards.pdf  — 6 arrows + 1 personal boost per colour,
 //                              plus 20 generic boost cards
 //   gobble-card-update.pdf   — ONLY the 8 player-coloured boost cards
-//   gobble-tokens.pdf        — 10 "+2 boost" + 10 "×2 food", numbered 1–10
 //   gobble-player-boards.pdf — 3 boards per Letter sheet, full-width track
 //   gobble-score-track.pdf   — uniform 10-per-row track to 100
 // Cards/tokens are squared, edge-to-edge with shared cut lines. Print at
@@ -62,10 +61,18 @@ const page = (title, css, body) =>
   `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title><style>${baseCSS}${css}</style></head><body>${body}</body></html>`;
 
 /* ════════════ 0) BOARD FOOD LAYOUTS ════════════
-   Six 4×4 layouts of `count` spots each, chosen so that (a) rotating a board
-   90/180/270° genuinely moves the food, (b) spots don't clump, and (c) no two
-   boards match — even after rotation. */
-function makeLayouts(t = 4, count = 6, boards = 6, seed = 20240719) {
+   Six 4×4 layouts of `count` spots each. Constraints were chosen against a
+   full enumeration of all 4368 five-spot subsets:
+     • rotational asymmetry ≥3 of 5 spots move under EVERY 90° rotation
+       (≥4 is possible per-board, but then six boards can only be 2/5 apart;
+        ≥5 is mathematically impossible — 0 subsets qualify)
+     • every pair of boards differs by ≥3 of 5 spots under ANY rotation
+       (the max such set is 8 boards, so six is comfortable)
+     • food touches ≥3 of the four quadrants and barely clumps (≤2 adjacent
+       pairs)
+   Among sets that satisfy all of it, we keep the one with the most
+   rotational asymmetry overall. */
+function makeLayouts(t = 4, count = 5, boards = 6, seed = 20240719) {
   const rng = mulberry32(seed);
   const all = Array.from({ length: t * t }, (_, i) => ({ x: i % t, y: Math.floor(i / t) }));
   const rot = (c) => ({ x: t - 1 - c.y, y: c.x });                 // 90° clockwise
@@ -75,77 +82,106 @@ function makeLayouts(t = 4, count = 6, boards = 6, seed = 20240719) {
     for (let r = 0; r < 3; r++) { cur = cur.map(rot); out.push(cur); }
     return out;
   };
-  const chosen = [];
-  while (chosen.length < boards) {
-    let best = null, bestScore = -Infinity;
-    for (let tries = 0; tries < 4000; tries++) {
-      const pick = shuffle(rng, all.slice()).slice(0, count);
-      const set = new Set(pick.map(key));
-      // asymmetry: fewest spots that move under any rotation (higher = better)
-      let asym = Infinity;
-      rotations(pick).slice(1).forEach((r) => {
-        asym = Math.min(asym, r.filter((c) => !set.has(key(c))).length);
-      });
-      if (asym < 4) continue;                                       // 4 of 6 spots must move under EVERY rotation
-                                                                    // (5 is unreachable for 6 spots on a 4×4)
-      // clumping penalty
+  const asymOf = (p) => {
+    const set = new Set(p.map(key));
+    return Math.min(...rotations(p).slice(1).map((r) => r.filter((c) => !set.has(key(c))).length));
+  };
+  const distOf = (a, b) => {
+    const set = new Set(b.map(key));
+    return Math.min(...rotations(a).map((r) => r.filter((c) => !set.has(key(c))).length));
+  };
+  // candidate pool: asymmetric, spread across quadrants, barely clumped
+  const pool = [];
+  const rec = (start, cur) => {
+    if (cur.length === count) {
+      if (asymOf(cur) < 3) return;
+      const quads = new Set(cur.map((c) => `${Math.floor(c.x / (t / 2))},${Math.floor(c.y / (t / 2))}`));
+      if (quads.size < Math.min(3, count)) return;
       let adj = 0;
-      for (let i = 0; i < pick.length; i++) for (let j = i + 1; j < pick.length; j++)
-        if (Math.abs(pick[i].x - pick[j].x) + Math.abs(pick[i].y - pick[j].y) === 1) adj++;
-      // quadrant spread (2×2 quadrants of a 4×4): reward using all four
-      const quads = new Set(pick.map((c) => `${Math.floor(c.x / (t / 2))},${Math.floor(c.y / (t / 2))}`));
-      // distinctness from boards already chosen, under every rotation
-      let distinct = Infinity;
-      for (const prev of chosen) {
-        const prevSet = new Set(prev.map(key));
-        rotations(pick).forEach((r) => {
-          distinct = Math.min(distinct, r.filter((c) => !prevSet.has(key(c))).length);
-        });
-      }
-      if (chosen.length && distinct < 3) continue;                  // ≥3 cells apart from every other board, under any
-                                                                    // rotation (≥4 only yields 3 boards — verified)
-      const score = asym * 6 + quads.size * 4 + Math.min(distinct, 6) * 3 - adj * 2 + rng();
-      if (score > bestScore) { bestScore = score; best = pick; }
+      for (let i = 0; i < cur.length; i++) for (let j = i + 1; j < cur.length; j++)
+        if (Math.abs(cur[i].x - cur[j].x) + Math.abs(cur[i].y - cur[j].y) === 1) adj++;
+      if (adj > 2) return;
+      pool.push(cur.slice());
+      return;
     }
-    if (!best) break;                                               // (never hit at these settings)
-    chosen.push(best);
+    for (let i = start; i < all.length; i++) { cur.push(all[i]); rec(i + 1, cur); cur.pop(); }
+  };
+  rec(0, []);
+  // randomized restarts: build a mutually-distinct set, keep the most asymmetric
+  let bestSet = null, bestAsym = -1;
+  for (let restart = 0; restart < 3000; restart++) {
+    const shuffled = shuffle(rng, pool.slice());
+    const set = [];
+    for (const p of shuffled) {
+      if (set.every((q) => distOf(p, q) >= 3)) set.push(p);
+      if (set.length === boards) break;
+    }
+    if (set.length < boards) continue;
+    const total = set.reduce((n, p) => n + asymOf(p), 0);
+    if (total > bestAsym) { bestAsym = total; bestSet = set; }
   }
-  return chosen;
+  return bestSet;
 }
 
-/* ════════════ 1) MINI-BOARDS ════════════ */
-function boardsHTML(layouts, t = 4) {
+/** One printed BOOST space for `howMany` of the boards, on a cell that has no
+    food, placed to sit somewhere different on each board. */
+function makeBoostSpots(layouts, howMany = 4, t = 4, seed = 991) {
+  const rng = mulberry32(seed);
+  const key = (c) => c.y * t + c.x;
+  const chosen = [];
+  return layouts.map((layout, i) => {
+    if (i >= howMany) return null;
+    const taken = new Set(layout.map(key));
+    const free = shuffle(rng, Array.from({ length: t * t }, (_, k) => k).filter((k) => !taken.has(k)));
+    // spread the boost spaces: prefer a cell far from the ones already used
+    let best = free[0], bestD = -1;
+    for (const k of free) {
+      const c = { x: k % t, y: Math.floor(k / t) };
+      const d = chosen.length
+        ? Math.min(...chosen.map((p) => Math.abs(p.x - c.x) + Math.abs(p.y - c.y)))
+        : 99;
+      if (d > bestD) { bestD = d; best = k; }
+    }
+    chosen.push({ x: best % t, y: Math.floor(best / t) });
+    return best;
+  });
+}
+
+/* ════════════ 1) MINI-BOARDS — 7in square, one per sheet ════════════ */
+function boardsHTML(layouts, boostSpots, t = 4) {
   const css = `
-    .sheet { width:8.5in; height:11in; padding:0.15in; display:flex; flex-wrap:wrap;
-             align-content:flex-start; gap:0.2in; }
-    .mb { width:4in; height:4in; border:2px solid #111827; position:relative; background:#fff; }
+    .sheet { width:8.5in; height:11in; padding:0.6in 0.75in; display:flex; flex-direction:column;
+             align-items:center; }
+    .cap { width:7in; font-size:9pt; color:#6b7280; margin-bottom:0.16in; }
+    .mb { width:7in; height:7in; border:2.5px solid #111827; position:relative; background:#fff; }
     .cell { position:absolute; border:1px solid #cbd5e1; display:flex; align-items:center; justify-content:center; }
-    .spot { width:0.46in; height:0.46in; }
-    .bid { position:absolute; top:2px; left:4px; font-size:6.5pt; font-weight:800; color:#cbd5e1; letter-spacing:.1em; }
-    .cap { width:100%; font-size:8.5pt; color:#6b7280; margin:0 0.2in -0.05in; }
+    .spot { width:0.8in; height:0.8in; }
+    .bspot { width:0.78in; height:0.78in; }
+    .blabel { position:absolute; bottom:0.06in; left:0; right:0; text-align:center;
+              font-size:6.5pt; font-weight:800; letter-spacing:.1em; color:${GOLD}; }
+    .bid { position:absolute; top:4px; left:7px; font-size:8pt; font-weight:800; color:#d1d5db; letter-spacing:.12em; }
   `;
-  const cellIn = 4 / t;                      // 1.0in cells at the default 4×4
+  const cellIn = 7 / t;                                  // 1.75in cells at 4×4
   const board = (layout, idx) => {
     const spots = new Set(layout.map((c) => c.y * t + c.x));
+    const boost = boostSpots[idx];
     let cells = '';
     for (let y = 0; y < t; y++) for (let x = 0; x < t; x++) {
-      cells += `<div class="cell" style="left:${x * cellIn}in;top:${y * cellIn}in;width:${cellIn}in;height:${cellIn}in">
-        ${spots.has(y * t + x) ? `<span class="spot">${foodSVG()}</span>` : ''}
-      </div>`;
+      const k = y * t + x;
+      let inner = '';
+      if (spots.has(k)) inner = `<span class="spot">${foodSVG()}</span>`;
+      else if (k === boost) inner = `<span class="bspot">${boostSVG(GOLD)}</span><span class="blabel">BOOST</span>`;
+      cells += `<div class="cell" style="left:${x * cellIn}in;top:${y * cellIn}in;width:${cellIn}in;height:${cellIn}in">${inner}</div>`;
     }
     return `<div class="mb">${cells}<span class="bid">BOARD ${idx + 1}</span></div>`;
   };
-  let body = '';
-  for (let p = 0; p < Math.ceil(layouts.length / 4); p++) {
-    const slice = layouts.slice(p * 4, p * 4 + 4);
-    body += `<div class="sheet">
-      <div class="cap"><b>MINI-BOARDS</b> — cut on the outer border; boards butt together edge-to-edge. One per player.
-      Every board has ${layouts[0].length} food spots in a different, rotationally-asymmetric arrangement:
-      turning a board changes the game. Printed food never runs out.</div>
-      ${slice.map((l, i) => board(l, p * 4 + i)).join('')}
-    </div>`;
-  }
-  return page('Gobble — Mini-boards', css, body);
+  return page('Gobble — Mini-boards', css, layouts.map((l, i) => `
+    <div class="sheet">
+      <div class="cap"><b>MINI-BOARD ${i + 1} OF ${layouts.length}</b> — cut on the outer border; boards butt together
+      edge-to-edge. One per player. Food spots are printed and never run out; every board's arrangement is different
+      and rotationally asymmetric${boostSpots[i] !== null ? ', and this board has a <b>BOOST</b> space' : ''}.</div>
+      ${board(l, i)}
+    </div>`).join(''));
 }
 
 /* ════════════ 2) PLAYER CARDS (+ 3) card-update export) ════════════ */
@@ -204,94 +240,61 @@ function cardUpdateHTML() {
   return page('Gobble — Card Update (personal boosts)', cardCSS, body);
 }
 
-/* ════════════ 4) TOKENS ════════════ */
-function tokensHTML() {
-  const css = `
-    .grid { display:flex; flex-wrap:wrap; width:8.5in; }
-    .tok { width:0.85in; height:1.75in; border:1.5px solid #6b7280; margin:-0.75px;
-           display:flex; flex-direction:column; break-inside:avoid; overflow:hidden; background:#fff; }
-    .half { height:0.85in; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1pt; }
-    .fold { height:0.05in; border-top:1.5px dashed #9ca3af; border-bottom:1.5px dashed #9ca3af; }
-    .tok .ico { width:0.32in; height:0.32in; }
-    .amt { font-size:12pt; font-weight:900; line-height:1; }
-    .lbl { font-size:5.5pt; font-weight:800; letter-spacing:.07em; }
-    .back { transform:rotate(180deg); background:#f3f4f6; }
-    .num { font-size:20pt; font-weight:900; color:#374151; line-height:1; }
-    .backbrand { font-size:5pt; letter-spacing:.15em; color:#9ca3af; }
-  `;
-  const face = (kind) => kind === 'boost'
-    ? `<div class="half" style="background:${GOLD_BG}">${boostSVG(GOLD)}
-         <div class="amt" style="color:${GOLD}">+2</div><div class="lbl" style="color:${GOLD}">BOOST</div></div>`
-    : `<div class="half" style="background:${GOLD_BG}">${foodSVG()}
-         <div class="amt" style="color:${GOLD}">×2</div><div class="lbl" style="color:${GOLD}">FOOD</div></div>`;
-  const tok = (kind, n) => `<div class="tok">
-      ${face(kind)}
-      <div class="fold"></div>
-      <div class="half back"><div class="num">${n}</div><div class="backbrand">GOBBLE</div></div>
-    </div>`;
-  let body = `<div class="grid">`;
-  for (let n = 1; n <= 10; n++) body += tok('boost', n);   // +2 boost tokens
-  for (let n = 1; n <= 10; n++) body += tok('food', n);    // ×2 food (testing)
-  body += `</div>`;
-  return page('Gobble — Tokens', css, body);
-}
-
-/* ════════════ 5) PLAYER BOARDS — 3 per Letter sheet ════════════ */
+/* ════════════ 4) PLAYER BOARDS — 3 per Letter sheet ════════════ */
 function playerBoardsHTML() {
-  const LADDER = [
-    { len: 3, pts: 0 }, { len: 4, pts: 0 }, { len: 5, pts: 1 }, { len: 6, pts: 2 },
-    { len: 7, pts: 3 }, { len: 8, pts: 5 }, { len: 9, pts: 7 }, { len: 10, pts: 10 },
-    { len: 11, pts: 13 }, { len: 12, pts: 16 }, { len: 13, pts: 20 },
-  ];
+  // one space per point value; a boost icon marks the lengths that award an
+  // extra boost card (points 2, 4, 6, 8, 10 and 15)
+  const PTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15];
+  const BOOST_AT = new Set([2, 4, 6, 8, 10, 15]);
+  const START_LEN = 3;                       // first space = the starting snake
+  const LADDER = PTS.map((pts, i) => ({ len: START_LEN + i, pts, boost: BOOST_AT.has(pts) }));
+  const LAST = LADDER[LADDER.length - 1];
   const css = `
     .board { width:8.5in; height:3.62in; overflow:hidden; break-inside:avoid; display:flex;
-             flex-direction:column; justify-content:space-between; padding-bottom:8pt;
+             flex-direction:column; justify-content:space-between; padding-bottom:9pt;
              background:#fff; border-bottom:1.5px dashed #9ca3af; }
-    .mid { padding-bottom:2pt; }
     .hdr { display:flex; align-items:center; gap:8px; padding:5pt 16pt; color:#fff; }
     .hdr .ico { width:17pt; height:17pt; }
     .hdr h1 { font-size:13pt; margin:0; letter-spacing:.04em; }
     .hdr .pname { font-size:10pt; font-weight:800; padding:1pt 8pt; border:1.5px solid #fff; border-radius:20px; }
     .hdr .sub { margin-left:auto; font-size:7pt; opacity:.9; letter-spacing:.18em; }
-    .cap { font-size:7pt; font-weight:800; text-transform:uppercase; letter-spacing:.09em; color:#6b7280; padding:5pt 16pt 0; }
-    .lenrow { display:flex; justify-content:space-between; padding:3pt 16pt 0; }
-    .slot { text-align:center; }
-    .box { width:0.72in; height:0.72in; border:2px solid #374151; border-radius:6px; margin:0 auto; }
-    .slot.max .box { border-color:${GOLD}; background:${GOLD_BG}; }
-    .slot .l { font-size:6pt; color:#6b7280; font-weight:800; margin:1pt 0 0; }
-    .slot .p { font-size:11.5pt; font-weight:900; line-height:1.1; }
-    .slot .p.zero { color:#d1d5db; }
-    .ref { padding:3pt 16pt 0; columns:2; column-gap:16pt; }
-    .ref p { margin:0 0 2.5pt; font-size:7.4pt; line-height:1.3; break-inside:avoid; }
-    .callout { margin:4pt 16pt 0; font-size:7.6pt; background:${GOLD_BG}; border:1px solid ${GOLD};
-               border-radius:6px; padding:3pt 7pt; color:#78350f; }
+    .cap { font-size:7pt; font-weight:800; text-transform:uppercase; letter-spacing:.09em; color:#6b7280; padding:6pt 0.2in 0; }
+    .lenrow { display:flex; padding:3pt 0.2in 0; }
+    .slot { width:0.675in; text-align:center; }
+    .box { width:0.6in; height:0.6in; border:2px solid #374151; border-radius:6px; margin:0 auto; }
+    .slot.max .box { border-color:${GOLD}; background:${GOLD_BG}; border-width:2.5px; }
+    .slot .p { font-size:12pt; font-weight:900; line-height:1.15; margin-top:1pt; }
+    .slot .bi { height:0.19in; display:flex; align-items:center; justify-content:center; }
+    .slot .bi .ico { width:0.17in; height:0.17in; }
+    .notes { display:flex; justify-content:space-between; padding:1pt 0.2in 0; }
+    .note { display:flex; align-items:flex-start; gap:3pt; max-width:3.4in; }
+    .note .up { width:0.675in; text-align:center; font-size:11pt; line-height:1; color:${GOLD}; flex:none; }
+    .note .txt { font-size:7.6pt; line-height:1.25; color:#374151; padding-top:1pt; }
+    .note.right { text-align:right; }
   `;
-  const slot = (r) => `<div class="slot ${r.len === 13 ? 'max' : ''}">
+  const slot = (r) => `<div class="slot ${r.len === LAST.len ? 'max' : ''}">
       <div class="box"></div>
-      <div class="l">${r.len === 13 ? 'MAX' : ''} ${r.len}</div>
-      <div class="p ${r.pts === 0 ? 'zero' : ''}">${r.pts}</div>
+      <div class="p">${r.pts}</div>
+      <div class="bi">${r.boost ? boostSVG(GOLD) : ''}</div>
     </div>`;
   const board = (p) => `
     <div class="board">
       <div class="hdr" style="background:${p.ink}">
         ${snakeSVG('#fff')}<h1>GOBBLE</h1><span class="pname">${p.name}</span><span class="sub">PLAYER BOARD</span>
       </div>
-      <div class="mid">
-        <div class="cap">Track your length — points below are banked when you die at that length</div>
+      <div>
+        <div class="cap">Track your length — the number is what you bank if you die there · ${boostSVG(GOLD).replace('class="ico"','style="width:8pt;height:8pt;display:inline-block;vertical-align:-1px"')} = take an extra boost card</div>
         <div class="lenrow">${LADDER.map(slot).join('')}</div>
       </div>
-      <div class="callout"><b>At MAX (13):</b> no more growth — each food scores <b>+10 points instantly</b> (a ×2 bounty chip = +20).</div>
-      <div class="ref">
-        <p><b>Program</b> 2–6 cards face-down (left first). Arrow = 1 · Boost = 3. First lock starts the <b>15-sec timer</b>.</p>
-        <p><b>Resolve:</b> boosts slide first, then all arrows step together. Same square same moment = both die; hitting anything sitting still kills only the mover.</p>
-        <p><b>Food</b> is printed and never runs out (+1). <b>+2 boost token</b> = draw 2 boost cards. <b>Bounty chip</b> = ×2 food.</p>
-        <p><b>Death:</b> bank your length, flip every other segment to bounty, respawn on 3 contiguous cells touching any board corner.</p>
+      <div class="notes">
+        <div class="note"><span class="up">↑</span><span class="txt">When you eat a food, <b>add a segment</b> — move up one space.</span></div>
+        <div class="note right"><span class="txt">At <b>maximum length</b>, every food is worth <b>2 points!</b></span><span class="up">↑</span></div>
       </div>
     </div>`;
   return page('Gobble — Player Boards', css, PLAYERS.map(board).join(''));
 }
 
-/* ════════════ 6) SCORE TRACK — uniform, 10 per row, to 100 ════════════ */
+/* ════════════ 5) SCORE TRACK — uniform, 10 per row, to 100 ════════════ */
 function scoreHTML() {
   const css = `
     .wrap { width:8.5in; padding:0.5in 0.55in; }
@@ -329,11 +332,11 @@ function scoreHTML() {
 
 /* ── render all ── */
 const layouts = makeLayouts();
+const boostSpots = makeBoostSpots(layouts);
 const jobs = [
-  { name: 'gobble-mini-boards.pdf', html: boardsHTML(layouts) },
+  { name: 'gobble-mini-boards.pdf', html: boardsHTML(layouts, boostSpots) },
   { name: 'gobble-player-cards.pdf', html: cardsHTML() },
   { name: 'gobble-card-update.pdf', html: cardUpdateHTML() },
-  { name: 'gobble-tokens.pdf', html: tokensHTML() },
   { name: 'gobble-player-boards.pdf', html: playerBoardsHTML() },
   { name: 'gobble-score-track.pdf', html: scoreHTML() },
 ];
