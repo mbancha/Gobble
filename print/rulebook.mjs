@@ -27,7 +27,11 @@ const snakeSVG = (c) => `<svg viewBox="0 0 100 100" class="ico"><g fill="none" s
 /* ── diagram pieces ── */
 const head = (col, dir = 'up') => `<span class="pc head" style="background:${col}"><i class="nose ${dir}"></i></span>`;
 const body = (col) => `<span class="pc body" style="background:${col}"></span>`;
-const bounty = (col) => `<span class="pc bounty" style="background:${col}"><b>×2</b></span>`;
+const beadSVG = () => `<svg viewBox="0 0 100 100" class="ico">
+  <path d="M6 76 A44 44 0 0 1 94 76 Z" fill="#eab308"/>
+  <ellipse cx="34" cy="50" rx="12" ry="7.5" fill="#fef9c3" opacity=".9"/>
+  <rect x="4" y="74" width="92" height="7" rx="3.5" fill="#a16207"/></svg>`;
+const bead = () => `<span class="pc bead">${beadSVG()}</span>`;
 const food = () => `<span class="pc food">${foodSVG()}</span>`;
 const boost = () => `<span class="pc boost">${boostSVG(GOLD)}</span>`;
 const crash = () => `<span class="pc crash">✕</span>`;
@@ -45,7 +49,7 @@ function dgrid(w, h, cells = {}, { px = 30, void: voids = [], mark = {} } = {}) 
 }
 /** A whole mini-board shown as one square (for setup arrangements). */
 const tile = (label = '') => `<span class="tile">${label}</span>`;
-const fig = (inner, caption) => `<figure>${inner}<figcaption>${caption}</figcaption></figure>`;
+const fig = (inner, caption, cls = '') => `<figure class="${cls}">${inner}<figcaption>${caption}</figcaption></figure>`;
 const card = (inner, label, col, bg = '#fff') =>
   `<span class="mini-card" style="border-color:${col};background:${bg}"><span class="mc-ico">${inner}</span><b style="color:${col}">${label}</b></span>`;
 
@@ -69,6 +73,10 @@ const CSS = `
   .col { flex:1; }
   figure { margin:0; text-align:center; }
   figcaption { font-size:7.8pt; color:#4b5563; margin-top:3pt; line-height:1.3; max-width:2.3in; }
+  figure.ok .dg { border-color:#15803d; box-shadow:0 0 0 2px #dcfce7; }
+  figure.no .dg { border-color:#dc2626; box-shadow:0 0 0 2px #fee2e2; }
+  figure.ok figcaption b:first-child { color:#15803d; }
+  figure.no figcaption b:first-child { color:#dc2626; }
   .figs.tight { gap:9pt; }
   .figs.tight figcaption { max-width:1.3in; }
   .figs { display:flex; gap:13pt; flex-wrap:wrap; justify-content:flex-start; align-items:flex-start; margin:5pt 0 7pt; }
@@ -87,9 +95,7 @@ const CSS = `
   .pc.head .nose.left  { border-right-color:#fff;  left:11%;   top:50%;  margin-top:-4.5px; }
   .pc.head .nose.right { border-left-color:#fff;   right:11%;  top:50%;  margin-top:-4.5px; }
   .pc.body { width:64%; height:64%; border-radius:4px; opacity:.9; }
-  .pc.bounty { width:74%; height:74%; border-radius:3px; transform:rotate(45deg); border:1.5px solid #fff;
-               display:flex; align-items:center; justify-content:center; }
-  .pc.bounty b { transform:rotate(-45deg); color:#fff; font-size:6.5pt; }
+  .pc.bead { width:74%; height:74%; }
   .pc.food { width:56%; height:56%; }
   .pc.boost { width:64%; height:64%; }
   .pc.crash { color:#dc2626; font-size:15pt; font-weight:900; line-height:1; }
@@ -135,32 +141,30 @@ const page1 = `<div class="page">
     <div><h1>GOBBLE</h1>
       <div class="muted" style="font-size:10pt;letter-spacing:.14em">SIMULTANEOUS-PROGRAMMING SNAKE · 2–6 PLAYERS · ~20 MIN</div></div>
   </div>
-  <p class="lede" style="margin-top:12pt">Everyone programs their moves <b>in secret</b>, then all the snakes move <b>at once</b>.
-  Eat to grow. The longer your snake, the more points it banks <b>when it dies</b> — and dying is how you score.
-  So grow as fat as you dare, cash out at the right moment, and get straight back on the board.</p>
-  <div class="callout"><b>The tension:</b> a short snake is safe and worth almost nothing. A long snake is worth a lot
-  but can barely turn around — and at <b>maximum length</b> every scrap of food it eats is worth points right now.</div>
+  <p class="lede" style="margin-top:14pt">Everyone programs their moves <b>in secret</b>, then all the snakes move <b>at once</b>.
+  Eat to grow. The longer your snake, the more points it's worth!</p>
 
-  <h2 style="margin-top:12pt">What's in the box</h2>
+  <h2 style="margin-top:14pt">What's in the box</h2>
   <div class="row">
     <div class="col">
       <div class="figs">
         ${fig(dgrid(4, 4, { '1,0': food(), '3,1': food(), '0,2': boost(), '2,3': food() }, { px: 34 }),
              '<b>Mini-board</b> — one per player. Food spots and boost spaces are <b>printed</b>: they never run out.')}
         ${fig(`<div style="display:flex;gap:4pt">${card(arrowSVG(P.blue.ink), 'MOVE 1', P.blue.ink)}${card(boostSVG(P.blue.ink), 'MOVE ×3', P.blue.ink)}${card(boostSVG(GOLD), 'MOVE ×3', GOLD, GOLD_BG)}</div>`,
-             '<b>Your hand:</b> 6 arrows + your own permanent boost (left, in your colour). Gold boosts are drawn from the deck and discarded after use.')}
+             '<b>Your hand:</b> 6 movement cards + your own permanent boost (left, in your colour). Gold boosts are drawn from the deck and discarded after use.')}
       </div>
     </div>
     <div class="col">
       <ul>
         <li><b>6 mini-boards</b> (4×4). Every board's food layout is different and rotationally asymmetric — turning a board changes the game. Four boards also carry a <b>boost space</b>.</li>
-        <li><b>Arrow cards</b> — 6 per player, in their colour. Rotate one to aim it.</li>
+        <li><b>Movement cards</b> — 6 per player, in their colour. Rotate one to aim it.</li>
         <li><b>1 personal boost card</b> per player — always yours, back in hand every round.</li>
         <li><b>Boost deck</b> — generic ×3 boosts you draw from boost spaces and growth milestones.</li>
         <li><b>Player board</b> each — your length track and what each length is worth.</li>
         <li><b>Score track</b> (1–100) and a marker per player.</li>
-        <li><b>Snake pieces</b> — 1 head + up to 13 body segments per player, double-sided so they flip to <b>bounty</b>.</li>
-        <li><b>A 15-second timer</b> — phone or sand.</li>
+        <li><b>Snake pieces</b> — 1 head + up to 13 body segments per player.</li>
+        <li><b>Snake food</b> — yellow glass beads, left behind when a snake dies.</li>
+        <li><b>A 10-second timer</b> — phone or sand.</li>
       </ul>
     </div>
   </div>
@@ -169,9 +173,9 @@ const page1 = `<div class="page">
   <div class="figs tight">
     ${fig(dgrid(1, 1, { '0,0': food() }, { px: 40 }), '<b>Food spot</b><br>printed · +1 segment')}
     ${fig(dgrid(1, 1, { '0,0': boost() }, { px: 40 }), '<b>Boost space</b><br>printed · draw 1 boost card')}
-    ${fig(dgrid(1, 1, { '0,0': bounty(P.red.fill) }, { px: 40 }), '<b>Bounty chip</b><br>from a death · +2 segments, one-shot')}
+    ${fig(dgrid(1, 1, { '0,0': bead() }, { px: 40 }), '<b>Snake food</b><br>from a death · +2 segments, one-shot')}
     ${fig(dgrid(1, 1, { '0,0': head(P.green.fill, 'right') }, { px: 40 }), '<b>Head</b><br>leads the snake · the point shows its facing')}
-    ${fig(dgrid(1, 1, { '0,0': body(P.green.fill) }, { px: 40 }), '<b>Body segment</b><br>flips over to bounty when you die')}
+    ${fig(dgrid(1, 1, { '0,0': body(P.green.fill) }, { px: 40 }), '<b>Body segment</b><br>leaves snake food when you die')}
   </div>
   ${foot(1, 'OVERVIEW & COMPONENTS')}
 </div>`;
@@ -188,7 +192,7 @@ const page2 = `<div class="page">
   <ol class="steps">
     <li><b>Build the board.</b> Put out one mini-board per player, packed as close to an even square as possible.
         Any outside edge — including the notch where a board is missing — is a <b>wall</b>.</li>
-    <li><b>Deal hands.</b> Each player takes their 6 arrows, their personal boost card, their snake pieces and a player board.
+    <li><b>Deal hands.</b> Each player takes their 6 movement cards, their personal boost card, their snake pieces and a player board.
         Shuffle the gold boost deck into a draw stack. Put every score marker off the track (0 points).</li>
     <li><b>Place snakes</b> at length 3 (see below), in any order you like.</li>
   </ol>
@@ -206,16 +210,17 @@ const page2 = `<div class="page">
   from its neck. You may cover printed food — <b>you never eat what you cover</b>.</p>
   <div class="figs">
     ${fig(dgrid(4, 4, { '0,0': head(P.blue.fill, 'right'), '0,1': body(P.blue.fill), '0,2': body(P.blue.fill), '2,1': food(), '3,3': food() },
-      { px: 30, mark: { '3,0': '○', '0,3': '○', '3,3': '' } }), '<b>Legal</b> — the tail end sits on a corner cell.')}
+      { px: 30, mark: { '3,0': '○', '0,3': '○', '3,3': '' } }), '<b>Legal</b> — the tail end sits on a corner cell.', 'ok')}
     ${fig(dgrid(4, 4, { '0,0': head(P.orange.fill, 'down'), '1,0': body(P.orange.fill), '1,1': body(P.orange.fill), '3,2': food() }, { px: 30 }),
-      '<b>Legal</b> — bends are fine, and the head is on the corner.')}
+      '<b>Legal</b> — bends are fine, and the head is on the corner.', 'ok')}
     ${fig(dgrid(4, 4, { '1,1': head(P.silver.fill, 'right'), '1,2': body(P.silver.fill), '2,2': body(P.silver.fill), '0,3': food() }, { px: 30 }),
-      '<b>Illegal</b> — nothing touches a corner.')}
+      '<b>Illegal</b> — nothing touches a corner.', 'no')}
     ${fig(dgrid(4, 4, { '0,0': head(P.brown.fill, 'right'), '1,0': body(P.brown.fill), '3,0': body(P.brown.fill), '2,2': food() }, { px: 30, mark: { '2,0': '✕' } }),
-      '<b>Illegal</b> — the three cells are not contiguous.')}
+      '<b>Illegal</b> — the three cells are not contiguous.', 'no')}
   </div>
   <div class="callout"><b>Respawning</b> works exactly the same way — a snake that died comes back next round at length 3,
-  on any 3 contiguous cells touching a board corner, avoiding snakes and bounty chips.</div>
+  on any 3 contiguous cells touching a board corner, avoiding snakes and snake food. If <b>no corner placement is available
+  at all</b>, place as close to a corner as you can.</div>
   ${foot(2, 'SETUP')}
 </div>`;
 
@@ -232,16 +237,16 @@ const page3 = `<div class="page">
   If you lay fewer than 6, your snake simply <b>stops in place</b> for the rest of the round.</p>
   <div class="figs">
     ${fig(strip(['up', 'up', 'b', 'right', null, null]),
-      'Four programmed moves: up, up, a <b>boost</b> (3 cells right, rotated), right — then two rounds of standing still.')}
+      'Four programmed moves: up, up, a <b>boost</b> (3 cells right, rotated), right — then two slots standing still.')}
   </div>
-  <div class="callout"><b>⏱ The panic timer.</b> The instant the <b>first</b> player finishes their row, start the 15-second timer.
+  <div class="callout"><b>⏱ The panic timer.</b> The instant the <b>first</b> player finishes their row, start the 10-second timer.
   When it runs out, everybody else locks <b>whatever they have</b> — finished or not. Fast programming is a weapon.</div>
 
   <h3>2 · Reveal and resolve, one slot at a time</h3>
   <p>Flip every row face-up. Resolve slot 1 for everyone, then slot 2, and so on. Inside a single slot:</p>
   <ol class="steps">
     <li><b>Boosts slide first.</b> Every boosting snake moves its full 3 cells, one cell at a time, together.</li>
-    <li><b>Then arrows.</b> Every arrow snake steps 1 cell, all at the same time.</li>
+    <li><b>Then movement cards.</b> Every stepping snake moves 1 cell, all at the same time.</li>
   </ol>
   <p>And each individual move happens in this order:</p>
   <div class="figs">
@@ -265,8 +270,9 @@ const page3 = `<div class="page">
 const G = { red: P.red.fill, blue: P.blue.fill, green: P.green.fill, orange: P.orange.fill, silver: P.silver.fill, brown: P.brown.fill };
 const page4 = `<div class="page">
   <h2>Crashing</h2>
-  <p>A head that moves into a <b>wall</b>, into <b>any snake's body</b>, or into a <b>tail that hasn't cleared</b> — that snake <b>dies</b>.
-  Your own body counts. The red ✕ marks the cell where the crash happens.</p>
+  <p>If a snake head moves into a wall, any snake's body, into the same space another snake head is moving into,
+  or into the head of an unmoving snake, <b>that snake dies</b>. Your own body counts. The red ✕ marks the cell where
+  the crash happens.</p>
   <div class="figs">
     ${fig(dgrid(5, 3, { '1,1': body(G.red), '2,1': body(G.red), '3,1': head(G.red, 'right') },
       { px: 30, void: ['4,0', '4,1', '4,2'], mark: { '4,1': '✕' } }),
@@ -276,22 +282,22 @@ const page4 = `<div class="page">
       '<b>Body.</b> Blue drives into green\'s middle. <b>Only blue dies</b> — green is untouched.')}
     ${fig(dgrid(5, 3, { '0,1': body(G.orange), '1,1': head(G.orange, 'right'), '3,1': head(G.silver, 'left'), '4,1': body(G.silver) },
       { px: 30, mark: { '2,1': '✕' } }),
-      '<b>Head-on.</b> Both enter the same cell in the same instant — <b>both die</b>.')}
+      '<b>Same space.</b> Two heads moving into the same space in the same instant — <b>both die</b>.')}
     ${fig(dgrid(4, 3, { '0,1': body(G.brown), '1,1': head(G.brown, 'right'), '2,1': head(G.silver, 'up'), '2,2': body(G.silver), '3,2': body(G.silver) },
       { px: 30, mark: { '2,1': '✕' } }),
-      '<b>Into a parked head.</b> Silver programmed no move this slot, so <b>only brown</b> — the one that moved — dies.')}
+      '<b>Into an unmoving head.</b> Silver programmed no move this slot, so <b>only brown</b> — the one that moved — dies.')}
   </div>
 
-  <div class="callout"><b>Boosts go first, and that matters.</b> A boosting snake reaches a contested cell before any
-  arrow-mover does. The arrow snake arriving a beat later simply crashes into its side — the booster is safe.</div>
+  <div class="callout"><b>Boosts go first, and that matters.</b> A boosting snake crosses a contested space
+  <b>before</b> a stepping snake reaches it — and leaves its body sitting in the way.</div>
   <div class="figs">
-    ${fig(dgrid(6, 3, { '0,1': body(G.blue), '1,1': head(G.blue, 'right'), '5,0': body(G.orange), '5,1': head(G.orange, 'left') },
-      { px: 30, mark: { '4,1': '→' } }),
-      '<b>1 · Before.</b> Blue programmed a <b>boost</b> (3 cells right); orange a single arrow left. Both want the marked cell.')}
-    ${fig(dgrid(6, 3, { '3,1': body(G.blue), '4,1': head(G.blue, 'right'), '5,0': body(G.orange), '5,1': head(G.orange, 'left') }, { px: 30 }),
-      '<b>2 · Boosts resolve first.</b> Blue slides its full 3 cells and now <b>occupies</b> the cell.')}
-    ${fig(dgrid(6, 3, { '3,1': body(G.blue), '4,1': head(G.blue, 'right'), '5,0': bounty(G.orange) }, { px: 30, mark: { '5,1': '✕' } }),
-      '<b>3 · Then arrows.</b> Orange moves into an occupied cell and <b>dies</b> — its head leaves and its segment flips to bounty. <b>Blue lives.</b>')}
+    ${fig(dgrid(6, 4, { '0,2': body(G.blue), '1,2': head(G.blue, 'right'), '3,0': body(G.orange), '3,1': head(G.orange, 'down') },
+      { px: 28, mark: { '3,2': '✛' } }),
+      '<b>1 · Before.</b> Blue plays a <b>boost</b> (3 cells right). Orange plays a single move down. Their paths cross at the marked space.')}
+    ${fig(dgrid(6, 4, { '3,2': body(G.blue), '4,2': head(G.blue, 'right'), '3,0': body(G.orange), '3,1': head(G.orange, 'down') }, { px: 28 }),
+      '<b>2 · The boost slides first</b>, straight across orange\'s path — and blue\'s <b>body</b> now fills the crossing space.')}
+    ${fig(dgrid(6, 4, { '3,2': body(G.blue), '4,2': head(G.blue, 'right'), '3,0': bead() }, { px: 28, mark: { '3,2': '✕' } }),
+      '<b>3 · Then the steppers move.</b> Orange moves down into blue\'s body and <b>dies</b>, leaving snake food behind. <b>Blue is unharmed.</b>')}
   </div>
   <p class="muted" style="font-size:8.5pt">A boost is checked cell by cell: if it crashes on the 1st or 2nd cell it dies there and never finishes the slide.</p>
   ${foot(4, 'CRASHING')}
@@ -312,7 +318,7 @@ const page5 = `<div class="page">
     <tr><th style="width:1.1in">You entered</th><th class="c" style="width:0.9in">Growth</th><th class="c" style="width:1.1in">Boost cards</th><th>Notes</th></tr>
     <tr><td><span style="display:inline-block;width:13px;height:13px;vertical-align:-2px">${foodSVG()}</span> <b>Food spot</b></td><td class="c">+1 segment</td><td class="c">—</td><td>Printed — <b>never runs out</b>. A snake sitting on it just blocks it.</td></tr>
     <tr><td><span style="display:inline-block;width:13px;height:13px;vertical-align:-2px">${boostSVG(GOLD)}</span> <b>Boost space</b></td><td class="c">—</td><td class="c"><b>draw 1</b></td><td>Printed on 4 of the 6 boards — also never runs out.</td></tr>
-    <tr><td><b>◆ Bounty chip</b></td><td class="c">+2 segments</td><td class="c">—</td><td>Dropped by a death. <b>One-shot</b> — remove it once eaten.</td></tr>
+    <tr><td><span style="display:inline-block;width:13px;height:13px;vertical-align:-2px">${beadSVG()}</span> <b>Snake food</b></td><td class="c">+2 segments</td><td class="c">—</td><td>A yellow bead left by a death. <b>One-shot</b> — take it once eaten.</td></tr>
   </table>
   <p>New segments appear <b>behind the head</b> and unspool as you move. Anything that doesn't grow you resolves like a
   normal move — your tail piece just fills the gap.</p>
@@ -324,9 +330,9 @@ const page5 = `<div class="page">
   <p>Move a marker along it as you grow. The number under each space is what you <b>bank if you die at that length</b>.</p>
   ${ladder}
   <p class="muted" style="font-size:8pt;text-align:center">length 3 → 14 · the gold space is maximum length</p>
-  <div class="callout"><b>At maximum length (14)</b> your snake stops growing — and every food you eat instead scores
-  <b>+2 points immediately</b> (a ×2 bounty chip scores <b>+4</b>). A maxed snake parked on good food spots simply
-  prints points, which is why staying alive up there beats crashing on purpose.</div>
+  <div class="callout"><b>The moment you reach maximum length (14) you bank 15 points immediately</b> — take them on the
+  score track right away. Your snake stops growing, and from then on every food you eat scores <b>+2 points on the spot</b>
+  (snake food scores <b>+4</b>).</div>
   <div class="figs">
     ${fig(dgrid(4, 3, { '1,1': head(P.green.fill, 'right'), '0,1': body(P.green.fill), '0,2': body(P.green.fill), '2,1': food() }, { px: 30, mark: { '2,1': '' } }),
       'A maxed snake about to eat…')}
@@ -338,23 +344,23 @@ const page5 = `<div class="page">
 
 /* ═══════════ PAGE 6 — death, winning, quick reference ═══════════ */
 const page6 = `<div class="page">
-  <h2>Dying — which is the point</h2>
+  <h2>Dying</h2>
   <ol class="steps">
-    <li><b>Bank your length.</b> Score the number under your current space on the player board: length 3 = 1 point, all the way up to length 14 = <b>15 points</b>.</li>
-    <li><b>Drop bounty.</b> Your head leaves the board. Flip <b>every other body segment</b> — the first one behind the head, then every second one after it — to its bounty side; remove the segments in between. Each chip is worth <b>×2 food</b> to whoever eats it.</li>
+    <li><b>Bank your length</b> — the number under your current space on the player board (length 3 = 1 point, up to length 14 = 15). If you already banked by reaching <b>maximum length</b>, you score nothing more.</li>
+    <li><b>Leave snake food.</b> Your head leaves the board. Put a <b>yellow bead</b> on <b>every other body segment</b> — the first one behind the head, then every second one after it — and remove the segments in between. Each bead is worth <b>×2 food</b> to whoever eats it.</li>
     <li><b>Respawn</b> next round at length 3, touching a board corner (see Setup).</li>
   </ol>
   <div class="figs">
     ${fig(dgrid(6, 3, { '0,1': head(P.red.fill, 'right'), '1,1': body(P.red.fill), '2,1': body(P.red.fill), '3,1': body(P.red.fill), '4,1': body(P.red.fill), '5,1': body(P.red.fill) }, { px: 30 }),
       'A red snake at length 6 — about to crash.')}
-    ${fig(dgrid(6, 3, { '1,1': bounty(P.red.fill), '3,1': bounty(P.red.fill), '5,1': bounty(P.red.fill) }, { px: 30 }),
-      'It banks 4 points and leaves <b>3 bounty chips</b> — every other segment. The rest go back in the box.')}
+    ${fig(dgrid(6, 3, { '1,1': bead(), '3,1': bead(), '5,1': bead() }, { px: 30 }),
+      'It banks 4 points and leaves <b>3 beads of snake food</b> — every other segment. The rest go back in the box.')}
   </div>
 
   <h2 style="margin-top:6pt">Winning</h2>
-  <p>The moment anybody reaches <b>70 points</b>, the game ends immediately — but it isn't over yet:</p>
+  <p>The moment anybody reaches <b>50 points</b>, the game ends immediately — but it isn't over yet:</p>
   <ul>
-    <li><b>Every snake still alive cashes out</b>, banking points for its current length off the same ladder.</li>
+    <li><b>Every snake still alive cashes out</b>, banking points for its current length off the same ladder (a snake that already banked at maximum length scores nothing more).</li>
     <li>Compare totals. <b>Highest total wins.</b></li>
   </ul>
   <p>Crossing the line first does <b>not</b> guarantee the win — a rival sitting on a huge live snake can leapfrog you
@@ -362,14 +368,14 @@ const page6 = `<div class="page">
 
   <h2 style="margin-top:8pt">Quick reference</h2>
   <ol class="steps">
-    <li><b>Program</b> 2–6 cards face-down. Arrow = 1 cell · Boost = 3 cells. Your own boost comes back every round; drawn ones are discarded.</li>
-    <li>The first player to lock starts the <b>15-second timer</b>; everyone else locks whatever they have when it ends.</li>
-    <li><b>Resolve slot by slot:</b> boosts slide first, then all arrows step together. Tail clears → head slides → check crashes → eat.</li>
-    <li><b>Food</b> +1 segment (never runs out) · <b>boost space</b> draw 1 · <b>bounty chip</b> +2 segments. Even lengths draw a boost card. At <b>max 14</b>, every food is worth <b>2 points</b>.</li>
-    <li><b>Crash</b> = death: bank your length, flip every other segment to bounty, respawn on a corner next round.</li>
-    <li><b>First to 70</b> ends it — living snakes cash out, highest total wins.</li>
+    <li><b>Program</b> 2–6 cards face-down. Movement = 1 cell · Boost = 3 cells. Your own boost comes back every round; drawn ones are discarded.</li>
+    <li>The first player to lock starts the <b>10-second timer</b>; everyone else locks whatever they have when it ends.</li>
+    <li><b>Resolve slot by slot:</b> boosts slide first, then all steppers move together. Tail clears → head slides → check crashes → eat.</li>
+    <li><b>Food</b> +1 segment (never runs out) · <b>boost space</b> draw 1 · <b>snake food</b> +2 segments. Even lengths draw a boost card. Reaching <b>max 14</b> banks <b>15 points</b>, then every food is worth <b>2</b>.</li>
+    <li><b>Crash</b> = death: bank your length, leave snake food on every other segment, respawn on a corner next round.</li>
+    <li><b>First to 50</b> ends it — living snakes cash out, highest total wins.</li>
   </ol>
-  <div class="callout" style="margin-top:10pt"><b>Three habits of a good Gobble player:</b> program a safe pair of moves
+  <div class="callout" style="margin-top:10pt"><b>Three habits of a good Gobbler:</b> program a safe pair of moves
   before you program a greedy one; watch which rivals still hold boost cards; and never let a fat snake wander somewhere
   it can't turn around.</div>
   ${foot(6, 'DYING, WINNING & QUICK REFERENCE')}

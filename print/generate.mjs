@@ -2,10 +2,10 @@
 // Renders six PDFs via headless Chromium's page.pdf(); all art inline SVG.
 //   gobble-mini-boards.pdf   — 6 boards (5.9in square, one per sheet), each
 //                              own randomized food layout; 4 have a boost space
-//   gobble-player-cards.pdf  — 6 arrows + 1 personal boost per colour,
+//   gobble-player-cards.pdf  — 6 movement cards + 1 personal boost per colour,
 //                              plus 20 generic boost cards
 //   gobble-card-update.pdf   — ONLY the 8 player-coloured boost cards
-//   gobble-temp-cards.pdf    — six colours' full hands (6 arrows + boost) on
+//   gobble-temp-cards.pdf    — six colours' full hands (6 movement + boost) on
 //                              ONE sheet, for a quick temporary PnP
 //   gobble-player-boards.pdf — 3 boards per Letter sheet, full-width track
 //   gobble-score-track.pdf   — uniform 10-per-row track to 100
@@ -243,7 +243,7 @@ function cardUpdateHTML() {
 }
 
 /* ════════════ 3b) TEMP CARD SHEET — six players' hands on ONE sheet ════════════
-   6 arrows + 1 personal boost per colour = 42 cards. A 6×7 grid of 1.4167in
+   6 movement cards + 1 personal boost per colour = 42 cards. A 6×7 grid of 1.4167in
    squares is exactly 42 slots and the largest square that fits a Letter sheet
    (7 across would force 1.21in). Cards are smaller than the main deck's 1.7in
    — that's the price of one sheet. */
@@ -263,7 +263,7 @@ function tempCardsHTML(names) {
     .foot { font-size:7pt; }
   `;
   let body = `<div class="grid">`;
-  for (const p of chosen) {                             // 6 arrows then that colour's boost
+  for (const p of chosen) {                             // 6 movement cards then that colour's boost
     for (let i = 0; i < 6; i++) body += arrowCard(p);
     body += ownBoostCard(p);
   }
@@ -314,12 +314,12 @@ function playerBoardsHTML() {
         ${snakeSVG('#fff')}<h1>GOBBLE</h1><span class="pname">${p.name}</span><span class="sub">PLAYER BOARD</span>
       </div>
       <div>
-        <div class="cap">Track your length — the number is what you bank if you die there · ${boostSVG(GOLD).replace('class="ico"','style="width:8pt;height:8pt;display:inline-block;vertical-align:-1px"')} = take an extra boost card</div>
+        <div class="cap">Track your length — the number is what your snake banks · ${boostSVG(GOLD).replace('class="ico"','style="width:8pt;height:8pt;display:inline-block;vertical-align:-1px"')} = take an extra boost card</div>
         <div class="lenrow">${LADDER.map(slot).join('')}</div>
       </div>
       <div class="notes">
         <div class="note"><span class="up">↑</span><span class="txt">When you eat a food, <b>add a segment</b> — move up one space.</span></div>
-        <div class="note right"><span class="txt">At <b>maximum length</b>, every food is worth <b>2 points!</b></span><span class="up">↑</span></div>
+        <div class="note right"><span class="txt">Reach <b>maximum length</b> and bank <b>15 points</b> straight away — then every food is worth <b>2 more!</b></span><span class="up">↑</span></div>
       </div>
     </div>`;
   return page('Gobble — Player Boards', css, PLAYERS.map(board).join(''));

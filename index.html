@@ -56,7 +56,7 @@
     • PRINTED FOOD: every mini-board carries its OWN randomized food layout,
       chosen for rotational asymmetry (turning a board changes play) and
       spread. All printed spots are plain +1 food by default — ×2 food comes
-      only from bounty chips. Spots NEVER deplete: eating doesn't remove
+      only from snake food. Spots NEVER deplete: eating doesn't remove
       them, and a snake covering one just blocks it until the cell frees up.
       There is no end-of-round token upkeep at all.
     • ONE-SHOT PICKUPS: N−1 ×2-energy tokens (draw 2 boost cards) scatter on
@@ -69,7 +69,9 @@
       maxBoostCards). An unaffordable boost downgrades to a 1-cell move.
     • Respawn placement: a returning snake is placed on ANY 3 contiguous
       cells free of snakes and pickups — bends allowed — and at least one
-      cell must TOUCH A CORNER of some mini-board. Printed food spots may be
+      cell must TOUCH A CORNER of some mini-board — unless no corner
+      placement exists at all, in which case any legal spot is allowed and
+      bots pick the one closest to a corner. Printed food spots may be
       covered freely: a placement never eats what it covers. The head points
       away from its neck (facing derived, not chosen). Humans click head →
       middle → tail (arrow keys extend, Backspace undoes); bots pick the
@@ -80,6 +82,11 @@
       round out.
     • A ×2 food grows TWO segments — the second piece stacks behind the head
       on the gap cell, just like the first — and still pays +1 energy.
+    • Reaching maxSnakeLength CASHES THE SNAKE IN immediately: it banks the
+      top of the ladder once (bankedAtMax), then keeps earning the per-food
+      bonus. A snake that banked this way scores nothing further when it dies
+      or at the final cash-out — so at max you want to stay alive and keep
+      eating, not crash.
     • Snake growth is capped by maxSnakeLength — the game does NOT end there.
       Every food unit a capped snake can't fit converts on the spot into
       maxLengthFoodBonus points (a +2 food at the cap = +2×bonus). Staying
@@ -375,11 +382,11 @@ const CONFIG_FIELDS = [
   { id: 'boostSpotPercent',    label: 'Boards with boost space (%)', min: 0, max: 100, def: 67, group: 'Printed food', hint: 'Share of mini-boards carrying a printed boost space (+1 card, never depletes)' },
   { id: 'x2FoodPercent',       label: '×2 food share (%)',       min: 0,  max: 100, def: 0,   group: 'Printed food', hint: 'Share of printed spots worth ×2 (0 by default — ×2 comes from bounty only)' },
   // ── match & guards ──
-  { id: 'pointsToWin',         label: 'Points to win',           min: 10, max: 500, def: 70,  group: 'Match rules', hint: 'Instant victory threshold' },
+  { id: 'pointsToWin',         label: 'Points to win',           min: 10, max: 500, def: 50,  group: 'Match rules', hint: 'Instant victory threshold' },
   { id: 'maxSnakeLength',      label: 'Max snake length',        min: 6,  max: 64,  def: 14,  group: 'Match rules', hint: 'Body-piece supply cap' },
-  { id: 'maxLengthFoodBonus',  label: 'Max-length food bonus',   min: 0,  max: 250, def: 2,   group: 'Match rules', hint: 'Points per food unit a capped snake eats (a ×2 bounty chip = double)' },
+  { id: 'maxLengthFoodBonus',  label: 'Max-length food bonus',   min: 0,  max: 250, def: 2,   group: 'Match rules', hint: 'Points per food unit a capped snake eats (snake food = double)' },
   { id: 'maxRounds',           label: 'Max rounds (guard)',      min: 10, max: 500, def: 100, group: 'Match rules', hint: 'Highest score wins at the cap' },
-  { id: 'panicSeconds',        label: 'Panic timer (s)',         min: 5,  max: 60,  def: 15,  group: 'Match rules', hint: 'Countdown once the first player locks' },
+  { id: 'panicSeconds',        label: 'Panic timer (s)',         min: 5,  max: 60,  def: 10,  group: 'Match rules', hint: 'Countdown once the first player locks' },
 ];
 
 /** Optional refill helper: a halved-triangular climb (1, 2, 3, 5, 8 …) from
@@ -594,6 +601,7 @@ class Engine {
       chartColor: SEAT_COLORS[i].chart,
       score: 0,
       boosts: 0,                    // BANKED bonus boost cards (the 1-per-round boost is free)
+      bankedAtMax: false,           // already cashed this snake in by reaching max length
       freeBoostsUsed: 0,            // free boosts spent this round
       deaths: 0,
       alive: false,
@@ -646,7 +654,7 @@ class Engine {
       }
     });
 
-    // dynamic pickups (one-shot): bounty chips from deaths + the N−1 starting
+    // dynamic pickups (one-shot): snake food dropped by deaths
     // ×2-energy tokens. cellKey → { kind:'energy'|'bounty', value, ownerSeat? }
     this.food = new Map();
   }
@@ -705,8 +713,9 @@ class Engine {
       contiguous cells, in-bounds, free of snakes and one-shot pickups, and
       at least one cell must touch a CORNER of some mini-board. Printed food
       spots may be covered — a placement never eats what it covers. */
-  validChain(cells) {
+  validChain(cells, requireCorner = null) {
     if (!Array.isArray(cells) || cells.length !== this.spawnFootprint()) return false;
+    if (requireCorner === null) requireCorner = this.cornerPlacementPossible();
     const occ = this.occupancy();
     const seen = new Set();
     let touchesCorner = false;
@@ -719,8 +728,37 @@ class Engine {
       if (this.corners.has(k)) touchesCorner = true;
       if (i > 0 && Math.abs(c.x - cells[i - 1].x) + Math.abs(c.y - cells[i - 1].y) !== 1) return false;
     }
-    return touchesCorner;
+    return requireCorner ? touchesCorner : true;
   }
+
+  /** Enumerate every legal chain (optionally only corner-touching ones). */
+  allChains(requireCorner) {
+    const L = this.spawnFootprint();
+    const out = [];
+    const seen = new Set();
+    for (const startK of this.valid) {
+      const grow = (chain) => {
+        if (chain.length === L) {
+          const sig = chain.map((c) => cellKey(c.x, c.y)).join('|');
+          if (seen.has(sig)) return;
+          seen.add(sig);
+          if (this.validChain(chain, requireCorner)) out.push(chain);
+          return;
+        }
+        const last = chain[chain.length - 1];
+        for (const d of DIR_LIST) {
+          const n = { x: last.x + DIRS[d].dx, y: last.y + DIRS[d].dy };
+          if (chain.some((c) => c.x === n.x && c.y === n.y)) continue;
+          grow([...chain, n]);
+        }
+      };
+      grow([{ x: startK & 63, y: startK >> 6 }]);
+    }
+    return out;
+  }
+
+  /** Is any corner-touching placement available right now? */
+  cornerPlacementPossible() { return this.allChains(true).length > 0; }
 
   /** Place a dead player's snake along `cells` (head first). Returns the
       respawn event, or null if the chain is illegal. */
@@ -730,6 +768,7 @@ class Engine {
     while (body.length < this.cfg.startingLength) body.push({ ...body[body.length - 1] });
     p.body = body;
     p.alive = true;
+    p.bankedAtMax = false;                       // a new snake can be cashed in again
     p.facing = this.chainFacing(cells);
     return { t: 'respawn', seat: p.seat, at: { ...cells[0] } };
   }
@@ -741,24 +780,21 @@ class Engine {
       penalty for staring straight at a wall or a body. This is the
       anti-enclosure heuristic. Returns the chain cells, or null. */
   smartPlacement() {
-    const L = this.spawnFootprint();
-    const candidates = [];
-    const order = rngShuffle(this.rng, [...this.valid]);
-    for (const k of order) {
-      const head = { x: k & 63, y: k >> 6 };
-      const grow = (chain) => {                        // depth ≤ 2: enumerates bends too
-        if (chain.length === L) { if (this.validChain(chain)) candidates.push(chain); return; }
-        const last = chain[chain.length - 1];
-        for (const d of DIR_LIST) {
-          const nx = last.x + DIRS[d].dx, ny = last.y + DIRS[d].dy;
-          if (chain.some((c) => c.x === nx && c.y === ny)) continue;
-          grow([...chain, { x: nx, y: ny }]);
-        }
-      };
-      grow([head]);
-      if (candidates.length >= 60) break;              // enough options to choose between
-    }
+    // corner-touching spots if any exist; otherwise fall back to every legal
+    // spot and prefer the one closest to a corner
+    const onCorner = this.allChains(true);
+    const fallback = onCorner.length ? null : this.allChains(false);
+    let candidates = onCorner.length ? onCorner : (fallback || []);
     if (!candidates.length) return null;
+    if (!onCorner.length) {                            // rank by distance to the nearest corner
+      const cs = [...this.corners].map((k) => ({ x: k & 63, y: k >> 6 }));
+      const distOf = (chain) => Math.min(...chain.map((c) =>
+        Math.min(...cs.map((q) => Math.abs(q.x - c.x) + Math.abs(q.y - c.y)))));
+      const best = Math.min(...candidates.map(distOf));
+      candidates = candidates.filter((c) => distOf(c) === best);
+    }
+    rngShuffle(this.rng, candidates);
+    candidates = candidates.slice(0, 60);              // enough options to choose between
     const occ = this.occupancy();
     const foods = [...this.food.keys(), ...this.spots.keys()]
       .filter((k) => !occ.has(k))
@@ -933,7 +969,7 @@ class Engine {
       const f = m.token;
       if (!f) continue;                                     // nothing edible → tail already re-placed
       const k = cellKey(m.tx, m.ty);
-      // one-shot pickups (bounty chips, energy tokens) leave the game;
+      // one-shot pickups (snake food) leave the game;
       // printed food SPOTS persist — they're just covered while occupied
       if (this.food.has(k)) this.food.delete(k);
       const at = { x: m.tx, y: m.ty };
@@ -959,6 +995,15 @@ class Engine {
         }
       }
       const pointUnits = f.value - m.growUnits;             // overflow at/near the cap
+      // Reaching MAX LENGTH cashes the snake in on the spot: take the top of
+      // the ladder once, then keep earning the per-food bonus. A snake that
+      // has banked this way scores nothing further when it dies.
+      if (!p.bankedAtMax && p.body.length >= this.cfg.maxSnakeLength) {
+        p.bankedAtMax = true;
+        const pts = this.scoreForLength(this.cfg.maxSnakeLength);
+        p.score += pts;
+        events.push({ t: 'maxbank', seat: p.seat, pts, at });
+      }
       if (pointUnits > 0) {
         const pts = pointUnits * this.cfg.maxLengthFoodBonus;
         p.score += pts;
@@ -976,7 +1021,7 @@ class Engine {
       head token never flips. */
   killSnake(p, cause, clearedTail, events, crashAt) {
     const lenAtDeath = p.body.length + (clearedTail ? 1 : 0);
-    const pts = this.scoreForLength(lenAtDeath);
+    const pts = p.bankedAtMax ? 0 : this.scoreForLength(lenAtDeath);   // banked at max = already cashed in
     p.score += pts;
     p.deaths++;
     this.stats.deathsByCause[cause]++;
@@ -987,7 +1032,7 @@ class Engine {
       const k = cellKey(c.x, c.y);
       if (seen.has(k) || this.food.has(k)) return;     // dedupe stacks; never stack two pickups
       seen.add(k);
-      this.food.set(k, { kind: 'bounty', value: 2, ownerSeat: p.seat });
+      this.food.set(k, { kind: 'bounty', value: 2, ownerSeat: p.seat });   // 'snake food'
       chips.push({ ...c });
     });
     p.alive = false;
@@ -1005,7 +1050,7 @@ class Engine {
     const events = [];
     for (const p of this.players) {
       if (!p.alive) continue;
-      const pts = this.scoreForLength(p.body.length);
+      const pts = p.bankedAtMax ? 0 : this.scoreForLength(p.body.length);
       if (pts > 0) {
         p.score += pts;
         events.push({ t: 'cashout', seat: p.seat, len: p.body.length, pts });
@@ -1430,18 +1475,18 @@ const Renderer = {
         ctx.restore();
         if (f.value === 2) stamp2(x, y, '#5b21b6');
       } else {
-        // bounty: player-colored diamond with a white ring (worth double)
-        const col = SEAT_COLORS[f.ownerSeat].bright;
+        // snake food (dropped by a death): a yellow glass dome, seen from the side
         ctx.save();
-        ctx.translate(x, y); ctx.rotate(Math.PI / 4);
-        ctx.shadowColor = col; ctx.shadowBlur = s * 0.35;
-        const r = s * 0.20;
-        ctx.fillStyle = col;
-        ctx.fillRect(-r, -r, r * 2, r * 2);
+        ctx.shadowColor = '#facc15'; ctx.shadowBlur = s * 0.35;
+        ctx.fillStyle = '#eab308';
+        ctx.beginPath();
+        ctx.arc(x, y + s * 0.09, s * 0.26, Math.PI, 0);      // dome
+        ctx.closePath(); ctx.fill();
         ctx.shadowBlur = 0;
-        ctx.lineWidth = Math.max(1.5, s * 0.05);
-        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-        ctx.strokeRect(-r, -r, r * 2, r * 2);
+        ctx.fillStyle = '#a16207';                            // base line
+        ctx.fillRect(x - s * 0.27, y + s * 0.08, s * 0.54, s * 0.05);
+        ctx.fillStyle = 'rgba(255,255,255,0.75)';             // highlight
+        ctx.beginPath(); ctx.ellipse(x - s * 0.08, y - s * 0.03, s * 0.06, s * 0.035, -0.4, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
       }
     }
@@ -2130,14 +2175,14 @@ function consumeEvents(events) {
     if (ev.t === 'death') {
       const p = e.players[ev.seat];
       sounds.add('death');
-      log(`💥 <b>${esc(p.name)}</b> died — ${CAUSE_LABELS[ev.cause].toLowerCase()} at length ${ev.len} (+${ev.pts} pts, ${ev.chips.length} bounty chips)`, p.color);
+      log(`💥 <b>${esc(p.name)}</b> died — ${CAUSE_LABELS[ev.cause].toLowerCase()} at length ${ev.len} (+${ev.pts} pts, ${ev.chips.length} snake food)`, p.color);
       if (ev.at && e.inBounds(ev.at.x, ev.at.y)) Renderer.addEffect({ kind: 'boom', x: ev.at.x, y: ev.at.y, color: p.color, life: 650 });
       else if (ev.chips[0]) Renderer.addEffect({ kind: 'boom', ...ev.chips[0], color: p.color, life: 650 });
     }
     else if (ev.t === 'eat') {
       const p = e.players[ev.seat];
       sounds.add(ev.value === 2 ? 'eat2x' : ev.kind === 'bounty' ? 'bounty' : 'eat');
-      if (ev.kind === 'bounty') log(`💎 ${esc(p.name)} ate a bounty chip (+2 growth)`, p.color);
+      if (ev.kind === 'bounty') log(`🍯 ${esc(p.name)} ate snake food (+2 growth)`, p.color);
       else if (ev.value === 2) log(`🍒 ${esc(p.name)} ate a +2 food (grow 2)`, p.color);
     }
     else if (ev.t === 'boostDraw') {
@@ -2149,6 +2194,11 @@ function consumeEvents(events) {
       const p = e.players[ev.seat];
       sounds.add('bounty');
       log(`⚡ ${esc(p.name)} reached length ${ev.len} — take an extra boost card`, p.color);
+    }
+    else if (ev.t === 'maxbank') {
+      const p = e.players[ev.seat];
+      sounds.add('cashout');
+      log(`🏆 ${esc(p.name)} hit MAX LENGTH — banks ${ev.pts} pts on the spot`, p.color);
     }
     else if (ev.t === 'bonus') {
       const p = e.players[ev.seat];
@@ -2277,7 +2327,7 @@ function renderSimResults(a) {
           <h3 class="text-sm font-semibold text-slate-200 mb-3">Pickups left at game end</h3>
           <div class="space-y-[6px] border-l border-slate-700 pl-2">
             ${barRow('+2 boost tokens', a.foodNeutralSum / a.runs, Math.max(1, a.cfg.playerCount - 1), '#c98500', `${fmt1(a.foodNeutralSum / a.runs)} avg`)}
-            ${barRow('Bounty chips', a.foodBountySum / a.runs, 20, '#3987e5', `${fmt1(a.foodBountySum / a.runs)} avg`)}
+            ${barRow('Snake food', a.foodBountySum / a.runs, 20, '#3987e5', `${fmt1(a.foodBountySum / a.runs)} avg`)}
           </div>
           <p class="text-[11px] text-slate-500 mt-3">Printed food spots never deplete — only one-shot pickups are counted here.</p>
         </div>
