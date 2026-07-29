@@ -1,13 +1,13 @@
 # GOBBLE — Rules
 
-*A simultaneous-programming snake game for 2–8 players. Program your moves in secret, reveal at once, and grow fat before you crash — because dying is how you score.*
+*A simultaneous-programming snake game for 2–6 players. Program your moves in secret, reveal at once, and grow fat before you crash — because dying is how you score.*
 
 ---
 
 ## Components
 
 - **6 × Mini-boards** — 4×4 boards (5.9″ square), one per player. Each has **5 food spots printed on it**, and **4 of the 6 also have a BOOST space**. Every board's arrangement is different and rotationally asymmetric, so turning a board around changes the game. Everything printed is permanent — it never runs out and nothing is ever placed or removed. Printed food is **+1**; ×2 food comes only from bounty.
-- **8 × Arrow card sets** — 6 arrow cards per player, in the player's colour.
+- **8 × Arrow card sets** — 6 arrow cards per player, in the player's colour. (Card sets exist for 8 colours; the printed set has 6 mini-boards, so print two more boards to play 7–8.)
 - **8 × Personal boost cards** — every player permanently owns **one boost card** (part of their hand, like the arrows — it comes back every round).
 - **1 × Boost deck** — a shared stack of generic "×3" boost cards, drawn from boost spaces and length milestones; these are **discarded after use**.
 - **8 × Player boards** — a length row to track your snake, with the points banked under each space and a ⇑ marking the lengths that award an extra boost card.
@@ -27,7 +27,7 @@ Be the first to reach the **target score (default 70 points)**. You score mostly
 
 1. **Build the board:** place one mini-board per player, arranged **as close to an even square as possible** (2 players = a 2×1 strip, 3 = an L, 5 = a P, and so on). Edges with no board beyond them are walls.
 2. Give each player their **6 arrow cards + 1 personal boost card**, their **snake pieces**, and a **player board**. Shuffle the boost deck into a draw stack.
-3. **Place each snake** at length **3**: any 3 contiguous cells (bends fine) free of snakes and tokens, with **at least one piece touching a corner of any mini-board**. Placing over printed food is fine — **you never eat what you cover**.
+3. **Place each snake** at length **3**: any 3 contiguous cells (bends fine) free of snakes and bounty chips, with **at least one piece touching a corner of any mini-board**. Placing over printed food is fine — **you never eat what you cover**.
 
 ---
 
@@ -56,13 +56,13 @@ For each move: **tails clear** (lift your last tail piece unless this move grows
 
 ### 3. End of the round
 
-No token upkeep — the food is printed on the boards. Just **respawn** dead players (see *Death*) and check for a **winner** (see *Winning*).
+There is no upkeep — the food is printed on the boards. Just **respawn** dead players (see *Death*) and check for a **winner** (see *Winning*).
 
 ---
 
-## Food, tokens & energy
+## Food, boosts & bounty
 
-When your head enters an uncovered food spot or a token (and you didn't crash):
+When your head enters an uncovered printed spot or a bounty chip (and you didn't crash):
 
 | You entered | Growth | Boost cards |
 |---|---|---|
