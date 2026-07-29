@@ -57,7 +57,7 @@ For each move: **tails clear** (lift your last tail piece unless this move grows
 
 ### 3. End of the round
 
-There is no upkeep — the food is printed on the boards. Just **respawn** dead players (see *Death*) and check for a **winner** (see *Winning*).
+There is no upkeep — the food is printed on the boards. Just **respawn** dead players (see *Dying*) and check for a **winner** (see *Winning*).
 
 ---
 

@@ -3,17 +3,20 @@
 A playable prototype and data-simulation sandbox for a **simultaneous-programming snake
 board game**, contained in a single HTML file.
 
-Every round, all players secretly program a strip of **2 to `commandSlots` cards** — arrows
-(move 1) and **Boost** cards (slide 3; everyone owns one that refreshes each round, extras
-are banked from printed boost spaces and even-length milestones) — locking in fewer than the max stops you in place. The
-board is **one 4×4 mini-board per player**, tiled as close to a square as possible (3
-players = an L), with **food printed on fixed spots that never deplete** (each board's layout differs and is
-rotationally asymmetric) — covering a spot just blocks it. Boosts resolve before arrow moves each slot, so a booster claims contested
-squares first. Dying flips every other body piece into one-shot ×2 bounty food and **banks
-points by length** (3→1 … 14→15); at **max length (14)** each food scores **+2 on the
-spot**, and every even length hands you a boost card. Respawns place any 3 contiguous cells **touching a mini-board corner**. First to
-the target (70) triggers the end; every living snake cashes out and the highest **total**
-wins. Mirrors the physical prototype in `RULES.md`.
+Every round, all players secretly program a strip of **2 to `commandSlots` cards** — movement
+cards (move 1) and **Boost** cards (slide 3; everyone owns one that refreshes each round,
+extras are banked from printed boost spaces and even-length milestones) — and locking in
+fewer than the max stops you in place. The board is **one 4×4 mini-board per player**, tiled
+as close to a square as possible (3 players = an L), with **food printed on fixed spots that
+never deplete** (each board's layout differs and is rotationally asymmetric) — covering a
+spot just blocks it. Boosts resolve before stepping moves each slot, so a booster crosses a
+contested space first and leaves its body in the way. Dying leaves **snake food** on every
+other body piece and **banks points by length** (3→1 … 14→15). Reaching **max length (14)**
+banks those 15 points *immediately* and every further food scores **+2 on the spot** — a
+snake that banked at max scores nothing more when it dies. Respawns place any 3 contiguous
+cells **touching a mini-board corner**. First to the target (50) triggers the end; every
+living snake cashes out and the highest **total** wins. Mirrors the physical prototype in
+`RULES.md`.
 
 ## Run it
 
@@ -26,7 +29,7 @@ fully local.)
 - **Live play** — human vs. bots, hot-seat pass-and-play (2–8 seats, any human/bot mix),
   or all-bot spectator games, with an animated board, click-to-place respawns, per-slot
   **Boost** toggles (spending boost cards), WebAudio sound effects (mutable, zero assets),
-  and the 15-second **panic timer** that starts the moment the first player locks in.
+  and the 10-second **panic timer** that starts the moment the first player locks in.
 - **Simulation Mode** — a headless toggle that hides the board and batch-runs hundreds of
   bot games in milliseconds, then reports: average game length, score distribution,
   deaths per player with wall / head-to-head / body cause breakdown, boost efficiency
