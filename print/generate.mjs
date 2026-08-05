@@ -4,8 +4,10 @@
 //                              with its own food layout; 4 have a special space
 //   gobble-player-cards.pdf  — 6 movement cards + 1 personal boost per colour,
 //                              plus 20 generic boost cards
-//   gobble-special-cards.pdf — 9 Special effects × 2 copies, poker size
-//   gobble-special-backs.pdf — matching card backs (swirl)
+//   gobble-special-cards.pdf — 9 Special effects × 2 copies, poker size,
+//                              fronts and backs interleaved for duplex
+//   gobble-boost-stickers.pdf— 4 cell-sized swirl stickers to patch boards
+//                              printed before the boost→special change
 //   gobble-player-boards.pdf — 3 boards per Letter sheet, full-width track
 //   gobble-score-track.pdf   — uniform 10-per-row track to 100
 // Cards/tokens are squared, edge-to-edge with shared cut lines. Print at
@@ -367,7 +369,7 @@ function playerBoardsHTML() {
 
 /* ════════════ 4b) SPECIAL CARDS — poker size, 9 per sheet, fronts + backs ═══ */
 
-function specialsHTML(side = 'front') {
+function specialsHTML() {
   const css = `
     .sheet { width:8.5in; height:11in; padding:0.5in 0.5in; display:flex; flex-wrap:wrap;
              align-content:flex-start; }
@@ -397,10 +399,34 @@ function specialsHTML(side = 'front') {
       <div class="bart">${swirlSVG()}</div>
       <div class="btitle">SPECIAL</div>
     </div>`;
-  const body = side === 'front'
-    ? `<div class="sheet">${SPECIALS.map(front).join('')}</div><div class="sheet">${SPECIALS.map(front).join('')}</div>`
-    : `<div class="sheet">${SPECIALS.map(back).join('')}</div><div class="sheet">${SPECIALS.map(back).join('')}</div>`;
-  return page(`Gobble — Special Cards (${side})`, css, body);
+  // Duplex layout: every other sheet is backs, so front → back → front → back.
+  // All nine backs are identical, so no mirroring is needed for the flip.
+  const fronts = `<div class="sheet">${SPECIALS.map(front).join('')}</div>`;
+  const backs = `<div class="sheet">${SPECIALS.map(back).join('')}</div>`;
+  return page('Gobble — Special Cards', css, fronts + backs + fronts + backs);
+}
+
+/* ════════════ 4c) SPECIAL-SPACE STICKERS ════════════
+   Four cell-sized stickers to paste over the old boost spaces on already
+   printed boards. A board cell is SIDE/4 = 1.475in at the default 5.9in. */
+function stickersHTML(cell = 5.9 / 4) {
+  const css = `
+    .sheet { width:8.5in; height:11in; padding:0.7in; }
+    .cap { font-size:9pt; color:#6b7280; margin-bottom:0.25in; }
+    .row { display:flex; gap:0.35in; flex-wrap:wrap; }
+    .st { width:${cell}in; height:${cell}in; border:1px dashed #9ca3af; background:#fff;
+          position:relative; display:flex; align-items:center; justify-content:center; }
+    .st .sw { width:${cell * 0.44}in; height:${cell * 0.44}in; }
+    .st .lbl { position:absolute; bottom:0.06in; left:0; right:0; text-align:center;
+               font-size:6.5pt; font-weight:800; letter-spacing:.1em; color:#7c3aed; }
+  `;
+  const sticker = () => `<div class="st"><span class="sw">${swirlSVG()}</span><span class="lbl">SPECIAL</span></div>`;
+  const body = `<div class="sheet">
+      <div class="cap"><b>SPECIAL-SPACE STICKERS</b> — four cell-sized labels (${cell.toFixed(3)}in square) to stick over the
+      old boost spaces on boards you've already printed. Cut on the dashed line; each one covers exactly one board cell.</div>
+      <div class="row">${sticker()}${sticker()}${sticker()}${sticker()}</div>
+    </div>`;
+  return page('Gobble — Special-space stickers', css, body);
 }
 
 /* ════════════ 5) SCORE TRACK — uniform, 10 per row, to 100 ════════════ */
@@ -445,8 +471,8 @@ const boostSpots = makeBoostSpots(layouts);
 const jobs = [
   { name: 'gobble-mini-boards.pdf', html: boardsHTML(layouts, boostSpots) },
   { name: 'gobble-player-cards.pdf', html: cardsHTML() },
-  { name: 'gobble-special-cards.pdf', html: specialsHTML('front') },
-  { name: 'gobble-special-backs.pdf', html: specialsHTML('back') },
+  { name: 'gobble-special-cards.pdf', html: specialsHTML() },
+  { name: 'gobble-boost-stickers.pdf', html: stickersHTML() },
   { name: 'gobble-player-boards.pdf', html: playerBoardsHTML() },
   { name: 'gobble-score-track.pdf', html: scoreHTML() },
 ];

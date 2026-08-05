@@ -10,7 +10,7 @@
 - **8 × Movement tile sets** — 6 movement tiles per player, in the player's colour. (Tile sets exist for 8 colours; the printed set has 6 mini-boards, so print two more boards to play 7–8.)
 - **8 × Personal boost tiles** — every player permanently owns **one boost tile** (part of their hand, like the movement tiles — it comes back every round).
 - **1 × Boost stack** — spare "×3" boost tiles, taken at growth milestones. They're all identical, so keep them in a face-up stack. Spent boost tiles go back to the stack.
-- **18 × Special cards** — 9 effects, 2 copies each. Shuffled into a face-down deck; drawn when you cross a **special space**.
+- **18 × Special cards** — 9 effects, 2 copies each. Shuffled into a face-down deck; drawn when you cross a **special space**. (Print `gobble-special-cards.pdf` duplex — fronts and backs alternate.)
 - **8 × Player boards** — ten upright boxes that hold your snake sticks. Take one out each time you grow; the number under it is your score. Boxes **3, 6 and 10** have a boost icon printed inside, revealed as that stick comes out.
 - **1 × Score track sheet** — a shared 1–100 track; every player moves a marker on it (start off the track at 0).
 - **Snake pieces** — per player, 1 head marker + 13 wooden body sticks in your colour (3 on the board at the start, 10 waiting on your player board).
