@@ -371,8 +371,10 @@ function playerBoardsHTML() {
 
 function specialsHTML() {
   const css = `
-    .sheet { width:8.5in; height:11in; padding:0.5in 0.5in; display:flex; flex-wrap:wrap;
-             align-content:flex-start; }
+    /* 3×3 of 2.5×3.5in cards = 7.5×10.5in, centred on the sheet:
+       0.5in left/right, 0.25in top/bottom */
+    .sheet { width:8.5in; height:11in; padding:0; display:flex; flex-wrap:wrap;
+             align-content:center; justify-content:center; }
     .card { width:2.5in; height:3.5in; border:3mm solid #000; background:#fff;
             display:flex; flex-direction:column; align-items:center; break-inside:avoid;
             padding:0.14in 0.13in; text-align:center; }
