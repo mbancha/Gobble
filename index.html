@@ -82,11 +82,15 @@
       round out.
     • A ×2 food grows TWO segments — the second piece stacks behind the head
       on the gap cell, just like the first — and still pays +1 energy.
-    • Reaching maxSnakeLength CASHES THE SNAKE IN immediately: it banks the
-      top of the ladder once (bankedAtMax), then keeps earning the per-food
-      bonus. A snake that banked this way scores nothing further when it dies
-      or at the final cash-out — so at max you want to stay alive and keep
-      eating, not crash.
+    • SCORING IS CONTINUOUS: every segment your snake grows scores 1 point on
+      the spot (the ten spaces on the player board, worth 1…10). At max length
+      each food unit scores maxLengthFoodBonus instead. Dying neither adds nor
+      removes points — you already have them — and there is no end-of-game
+      cash-out. Physically you can tally as you eat, or just read your length
+      off the player board when you die.
+    • SPECIAL SPACES (the printed swirls) let a physical player draw a Special
+      card. The sandbox does not simulate the nine Special effects; it models
+      a swirl as a single boost tile so movement and scoring stay comparable.
     • Snake growth is capped by maxSnakeLength — the game does NOT end there.
       Every food unit a capped snake can't fit converts on the spot into
       maxLengthFoodBonus points (a +2 food at the cap = +2×bonus). Staying
@@ -371,7 +375,7 @@ const CONFIG_FIELDS = [
   // ── board & players ──
   { id: 'playerCount',         label: 'Players',                 min: 2,  max: 8,   def: 4,   group: 'Board & players', hint: '2–8 snakes — one mini-board each' },
   { id: 'tileSize',            label: 'Mini-board size (t×t)',   min: 3,  max: 8,   def: 4,   group: 'Board & players', hint: 'One t×t board per player, tiled near-square (3 players = an L)' },
-  { id: 'startingLength',      label: 'Starting length',         min: 2,  max: 15,  def: 3,   group: 'Board & players', hint: 'Segments at spawn (incl. head)' },
+  { id: 'startingLength',      label: 'Starting length',         min: 2,  max: 15,  def: 4,   group: 'Board & players', hint: 'Segments at spawn (head + 3)' },
   // ── movement & boost ──
   { id: 'commandSlots',        label: 'Command slots',           min: 2,  max: 8,   def: 6,   group: 'Movement & boost', hint: 'Cards programmed per round (min 2)' },
   { id: 'boostDistance',       label: 'Boost distance',          min: 2,  max: 6,   def: 3,   group: 'Movement & boost', hint: 'Cells covered by one boost card slide' },
@@ -379,10 +383,10 @@ const CONFIG_FIELDS = [
   { id: 'maxBoostCards',       label: 'Max banked energy',       min: 0,  max: 20,  def: 6,   group: 'Movement & boost', hint: 'Cap on EXTRA boost cards banked from ×2-energy tokens' },
   // ── printed food ──
   { id: 'foodSpotsPerTile',    label: 'Food spots / mini-board', min: 1,  max: 16,  def: 5,   group: 'Printed food', hint: 'Fixed spots printed on every mini-board — they never deplete' },
-  { id: 'boostSpotPercent',    label: 'Boards with boost space (%)', min: 0, max: 100, def: 67, group: 'Printed food', hint: 'Share of mini-boards carrying a printed boost space (+1 card, never depletes)' },
+  { id: 'boostSpotPercent',    label: 'Boards with special space (%)', min: 0, max: 100, def: 67, group: 'Printed food', hint: 'Share of mini-boards carrying a printed special space (draw a Special; never depletes)' },
   { id: 'x2FoodPercent',       label: '×2 food share (%)',       min: 0,  max: 100, def: 0,   group: 'Printed food', hint: 'Share of printed spots worth ×2 (0 by default — ×2 comes from bounty only)' },
   // ── match & guards ──
-  { id: 'pointsToWin',         label: 'Points to win',           min: 10, max: 500, def: 50,  group: 'Match rules', hint: 'Instant victory threshold' },
+  { id: 'pointsToWin',         label: 'Points to win',           min: 10, max: 500, def: 30,  group: 'Match rules', hint: 'Instant victory threshold' },
   { id: 'maxSnakeLength',      label: 'Max snake length',        min: 6,  max: 64,  def: 14,  group: 'Match rules', hint: 'Body-piece supply cap' },
   { id: 'maxLengthFoodBonus',  label: 'Max-length food bonus',   min: 0,  max: 250, def: 2,   group: 'Match rules', hint: 'Points per food unit a capped snake eats (snake food = double)' },
   { id: 'maxRounds',           label: 'Max rounds (guard)',      min: 10, max: 500, def: 100, group: 'Match rules', hint: 'Highest score wins at the cap' },
@@ -398,12 +402,13 @@ function triangularScoreTable(startLen = 3, maxLen = 13) {
   return rows;
 }
 
-/** Default score table: one space per point value on the player board —
-    lengths 3–14 pay 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15. */
+/** Default score table: the player board's ten spaces, worth 1…10 — one per
+    segment grown above the starting length of 4. Your score simply equals how
+    far along this track your snake is; it is banked as you eat, not on death. */
 const DEFAULT_SCORE_TABLE = [
-  { min: 3, pts: 1 }, { min: 4, pts: 2 }, { min: 5, pts: 3 }, { min: 6, pts: 4 },
-  { min: 7, pts: 5 }, { min: 8, pts: 6 }, { min: 9, pts: 7 }, { min: 10, pts: 8 },
-  { min: 11, pts: 9 }, { min: 12, pts: 10 }, { min: 13, pts: 12 }, { min: 14, pts: 15 },
+  { min: 5, pts: 1 }, { min: 6, pts: 2 }, { min: 7, pts: 3 }, { min: 8, pts: 4 },
+  { min: 9, pts: 5 }, { min: 10, pts: 6 }, { min: 11, pts: 7 }, { min: 12, pts: 8 },
+  { min: 13, pts: 9 }, { min: 14, pts: 10 },
 ];
 
 /** Build the sidebar inputs from the schema (one-time). */
@@ -601,7 +606,6 @@ class Engine {
       chartColor: SEAT_COLORS[i].chart,
       score: 0,
       boosts: 0,                    // BANKED bonus boost cards (the 1-per-round boost is free)
-      bankedAtMax: false,           // already cashed this snake in by reaching max length
       freeBoostsUsed: 0,            // free boosts spent this round
       deaths: 0,
       alive: false,
@@ -699,7 +703,7 @@ class Engine {
   /** Spawn footprint: a contiguous chain of up to 3 distinct cells, head
       first — bends allowed. Any remaining starting pieces stack on the tail
       cell. */
-  spawnFootprint() { return Math.min(3, this.cfg.startingLength); }
+  spawnFootprint() { return Math.min(4, this.cfg.startingLength); }
 
   /** A placed head points away from its neck — facing is derived from the
       chain, never chosen separately. */
@@ -768,7 +772,6 @@ class Engine {
     while (body.length < this.cfg.startingLength) body.push({ ...body[body.length - 1] });
     p.body = body;
     p.alive = true;
-    p.bankedAtMax = false;                       // a new snake can be cashed in again
     p.facing = this.chainFacing(cells);
     return { t: 'respawn', seat: p.seat, at: { ...cells[0] } };
   }
@@ -977,7 +980,7 @@ class Engine {
       if (f.kind === 'boost' || f.kind === 'energy') {
         // printed boost space: +1 banked card, no growth (tail already cleared)
         p.boosts = Math.min(this.cfg.maxBoostCards, p.boosts + f.value);
-        events.push({ t: 'boostDraw', seat: p.seat, at, value: f.value });
+        events.push({ t: 'specialDraw', seat: p.seat, at, value: f.value });
         continue;
       }
 
@@ -986,23 +989,22 @@ class Engine {
       // that don't fit the cap convert to immediate points.
       const lenBefore = p.body.length - 1;                   // before this move's growth
       for (let u = 1; u < m.growUnits; u++) p.body.splice(2, 0, { x: p.body[1].x, y: p.body[1].y });
-      // milestone: reaching an even length awards an extra boost card
-      // (the boost icons under points 2, 4, 6, 8, 10 and 15 on the board)
+      // milestone: the boost icons printed inside the player board's 3rd,
+      // 6th and 10th boxes — revealed as those sticks come out
+      const MILESTONES = new Set([3, 6, 10].map((pt) => this.cfg.startingLength + pt));
       for (let L = lenBefore + 1; L <= p.body.length; L++) {
-        if (L % 2 === 0 && L >= 4) {
+        if (MILESTONES.has(L)) {
           p.boosts = Math.min(this.cfg.maxBoostCards, p.boosts + 1);
           events.push({ t: 'milestone', seat: p.seat, len: L, at });
         }
       }
       const pointUnits = f.value - m.growUnits;             // overflow at/near the cap
-      // Reaching MAX LENGTH cashes the snake in on the spot: take the top of
-      // the ladder once, then keep earning the per-food bonus. A snake that
-      // has banked this way scores nothing further when it dies.
-      if (!p.bankedAtMax && p.body.length >= this.cfg.maxSnakeLength) {
-        p.bankedAtMax = true;
-        const pts = this.scoreForLength(this.cfg.maxSnakeLength);
-        p.score += pts;
-        events.push({ t: 'maxbank', seat: p.seat, pts, at });
+      // You are worth points equal to how far your snake has grown: every
+      // segment gained scores 1 point on the spot. Dying neither adds nor
+      // removes anything — you already have them.
+      if (m.growUnits > 0) {
+        p.score += m.growUnits;
+        events.push({ t: 'grow', seat: p.seat, pts: m.growUnits, at });
       }
       if (pointUnits > 0) {
         const pts = pointUnits * this.cfg.maxLengthFoodBonus;
@@ -1021,8 +1023,7 @@ class Engine {
       head token never flips. */
   killSnake(p, cause, clearedTail, events, crashAt) {
     const lenAtDeath = p.body.length + (clearedTail ? 1 : 0);
-    const pts = p.bankedAtMax ? 0 : this.scoreForLength(lenAtDeath);   // banked at max = already cashed in
-    p.score += pts;
+    const pts = 0;                    // points were scored as the snake grew; dying costs nothing extra
     p.deaths++;
     this.stats.deathsByCause[cause]++;
     const chips = [];
@@ -1050,11 +1051,7 @@ class Engine {
     const events = [];
     for (const p of this.players) {
       if (!p.alive) continue;
-      const pts = p.bankedAtMax ? 0 : this.scoreForLength(p.body.length);
-      if (pts > 0) {
-        p.score += pts;
-        events.push({ t: 'cashout', seat: p.seat, len: p.body.length, pts });
-      }
+      void p;                         // scores are already current — no end-of-game cash-out
     }
     const top = Math.max(...this.players.map((p) => p.score));
     this.winnerSeat = rngPick(this.rng, this.players.filter((p) => p.score === top)).seat;
@@ -1422,17 +1419,36 @@ const Renderer = {
     // printed spots (persist forever; drawn under snakes & pickups)
     for (const [k, f] of engine.spots) {
       const x = this.center(k & 63), y = this.center(k >> 6);
-      if (f.kind === 'boost') {                    // printed boost space: gold chevrons
+      if (f.kind === 'boost') {                    // printed SPECIAL space: a colourful swirl
         ctx.save();
-        ctx.strokeStyle = '#f59e0b';
-        ctx.lineWidth = Math.max(1.5, s * 0.07);
-        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-        for (let i = 0; i < 3; i++) {
-          const oy = y + (i - 1) * s * 0.16 + s * 0.05;
-          ctx.beginPath();
-          ctx.moveTo(x - s * 0.17, oy); ctx.lineTo(x, oy - s * 0.13); ctx.lineTo(x + s * 0.17, oy);
-          ctx.stroke();
-        }
+        ctx.lineWidth = Math.max(1.6, s * 0.075);
+        ctx.lineCap = 'round';
+        const ring = (r, a0, a1, col) => {
+          ctx.strokeStyle = col; ctx.beginPath();
+          ctx.arc(x, y, r, a0, a1); ctx.stroke();
+        };
+        const R = s * 0.26, H = Math.PI / 2;
+        ring(R, -H * 2, -H, '#ef4444'); ring(R, -H, 0, '#f59e0b');
+        ring(R, 0, H, '#22c55e');       ring(R, H, H * 2, '#3b82f6');
+        ring(R * 0.55, -H * 2, -H * 0.4, '#a855f7');
+        ring(R * 0.55, -H * 0.4, H * 0.8, '#ec4899');
+        ctx.fillStyle = '#7c3aed';
+        ctx.beginPath(); ctx.arc(x, y, s * 0.06, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+        continue;
+      }
+      // printed FOOD: a chunky pixel-art orange ball
+      {
+        const rows = ['..OOOO..', '.OWWLOO.', 'OWWLLOOO', 'OWLLOOOO',
+                      'OLLOOOOD', 'OLOOOODD', '.OOOODD.', '..OODD..'];
+        const COL = { O: '#f97316', L: '#fdba74', W: '#ffedd5', D: '#c2410c' };
+        const px = s * 0.055, x0 = x - px * 4, y0 = y - px * 4;
+        ctx.save();
+        rows.forEach((row, ry) => [...row].forEach((ch, rx) => {
+          if (ch === '.') return;
+          ctx.fillStyle = COL[ch];
+          ctx.fillRect(x0 + rx * px, y0 + ry * px, px + 0.4, px + 0.4);
+        }));
         ctx.restore();
         continue;
       }
@@ -2185,20 +2201,15 @@ function consumeEvents(events) {
       if (ev.kind === 'bounty') log(`🍯 ${esc(p.name)} ate snake food (+2 growth)`, p.color);
       else if (ev.value === 2) log(`🍒 ${esc(p.name)} ate a +2 food (grow 2)`, p.color);
     }
-    else if (ev.t === 'boostDraw') {
+    else if (ev.t === 'specialDraw') {
       const p = e.players[ev.seat];
       sounds.add('bounty');
-      log(`⚡ ${esc(p.name)} hit a boost space — draw ${ev.value} boost card${ev.value > 1 ? 's' : ''}`, p.color);
+      log(`🌀 ${esc(p.name)} crossed a special space — draw a Special card`, p.color);
     }
     else if (ev.t === 'milestone') {
       const p = e.players[ev.seat];
       sounds.add('bounty');
       log(`⚡ ${esc(p.name)} reached length ${ev.len} — take an extra boost card`, p.color);
-    }
-    else if (ev.t === 'maxbank') {
-      const p = e.players[ev.seat];
-      sounds.add('cashout');
-      log(`🏆 ${esc(p.name)} hit MAX LENGTH — banks ${ev.pts} pts on the spot`, p.color);
     }
     else if (ev.t === 'bonus') {
       const p = e.players[ev.seat];

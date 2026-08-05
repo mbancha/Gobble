@@ -1,12 +1,11 @@
 // Gobble — printable prototype asset generator (borderless, print-ready).
 // Renders six PDFs via headless Chromium's page.pdf(); all art inline SVG.
 //   gobble-mini-boards.pdf   — 6 boards (5.9in square, one per sheet), each
-//                              own randomized food layout; 4 have a boost space
+//                              with its own food layout; 4 have a special space
 //   gobble-player-cards.pdf  — 6 movement cards + 1 personal boost per colour,
 //                              plus 20 generic boost cards
-//   gobble-card-update.pdf   — ONLY the 8 player-coloured boost cards
-//   gobble-temp-cards.pdf    — six colours' full hands (6 movement + boost) on
-//                              ONE sheet, for a quick temporary PnP
+//   gobble-special-cards.pdf — 9 Special effects × 2 copies, poker size
+//   gobble-special-backs.pdf — matching card backs (swirl)
 //   gobble-player-boards.pdf — 3 boards per Letter sheet, full-width track
 //   gobble-score-track.pdf   — uniform 10-per-row track to 100
 // Cards/tokens are squared, edge-to-edge with shared cut lines. Print at
@@ -14,6 +13,7 @@
 import { chromium } from 'playwright';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { SPECIALS } from './specials.mjs';
 
 const OUT = process.argv[2] || path.dirname(fileURLToPath(import.meta.url));
 
@@ -49,7 +49,39 @@ const shuffle = (rng, arr) => {
 const arrowSVG = (color) => `<svg viewBox="0 0 100 100" class="ico"><path d="M50 6 L88 50 H66 V94 H34 V50 H12 Z" fill="${color}"/></svg>`;
 const boostSVG = (color) => `<svg viewBox="0 0 100 100" class="ico"><g fill="none" stroke="${color}" stroke-width="11" stroke-linecap="round" stroke-linejoin="round">
   <polyline points="18,42 50,14 82,42"/><polyline points="18,62 50,34 82,62"/><polyline points="18,82 50,54 82,82"/></g></svg>`;
-const foodSVG = () => `<svg viewBox="0 0 100 100" class="ico"><circle cx="50" cy="50" r="40" fill="${GOLD_BRIGHT}"/><circle cx="38" cy="38" r="12" fill="#fde68a"/></svg>`;
+/** Food: a chunky pixel-art orange ball — deliberately unlike the round
+    yellow glass beads used for snake food. */
+const foodSVG = () => {
+  const D = 'O', L = 'L', H = 'W', _ = '.';
+  const grid = [
+    '..OOOO..',
+    '.OWWLOO.',
+    'OWWLLOOO',
+    'OWLLOOOO',
+    'OLLOOOOD',
+    'OLOOOODD',
+    '.OOOODD.',
+    '..OODD..',
+  ];
+  const C = { O: '#f97316', L: '#fdba74', W: '#ffedd5', D: '#c2410c' };
+  let px = '';
+  grid.forEach((row, y) => [...row].forEach((ch, x) => {
+    if (ch === '.') return;
+    px += `<rect x="${x * 12.5}" y="${y * 12.5}" width="12.5" height="12.5" fill="${C[ch] || C.O}"/>`;
+  }));
+  return `<svg viewBox="0 0 100 100" class="ico" shape-rendering="crispEdges">${px}</svg>`;
+};
+/** Special space: a colourful swirl — cross it, draw a Special card. */
+const swirlSVG = () => `<svg viewBox="0 0 100 100" class="ico">
+  <g fill="none" stroke-width="9" stroke-linecap="round">
+    <path d="M50 8 A42 42 0 0 1 92 50" stroke="#ef4444"/>
+    <path d="M92 50 A42 42 0 0 1 50 92" stroke="#f59e0b"/>
+    <path d="M50 92 A42 42 0 0 1 8 50" stroke="#22c55e"/>
+    <path d="M8 50 A42 42 0 0 1 50 8" stroke="#3b82f6"/>
+    <path d="M50 26 A24 24 0 0 1 74 50" stroke="#a855f7"/>
+    <path d="M74 50 A24 24 0 0 1 50 74" stroke="#ec4899"/>
+    <path d="M50 74 A24 24 0 0 1 26 50" stroke="#06b6d4"/>
+  </g><circle cx="50" cy="50" r="7" fill="#7c3aed"/></svg>`;
 const snakeSVG = (color) => `<svg viewBox="0 0 100 100" class="ico"><g fill="none" stroke="${color}" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"><path d="M16 78 Q16 52 40 52 Q64 52 64 32 Q64 16 82 16"/></g><circle cx="84" cy="16" r="9" fill="${color}"/></svg>`;
 
 /* ── shared print CSS (borderless) ── */
@@ -125,17 +157,27 @@ function makeLayouts(t = 4, count = 5, boards = 6, seed = 20240719) {
   return bestSet;
 }
 
-/** One printed BOOST space for `howMany` of the boards, on a cell that has no
-    food, placed to sit somewhere different on each board. */
+/** One printed SPECIAL space (the swirl) for `howMany` of the boards, on a
+    cell with no food, sitting somewhere different on each board. Exactly one
+    of them is forced into the board's four CENTRE cells — the rest sit out
+    towards the edges. */
 function makeBoostSpots(layouts, howMany = 4, t = 4, seed = 991) {
   const rng = mulberry32(seed);
   const key = (c) => c.y * t + c.x;
+  const mid = t / 2;
+  const centre = new Set([mid - 1, mid].flatMap((y) => [mid - 1, mid].map((x) => y * t + x)));
   const chosen = [];
   return layouts.map((layout, i) => {
     if (i >= howMany) return null;
     const taken = new Set(layout.map(key));
-    const free = shuffle(rng, Array.from({ length: t * t }, (_, k) => k).filter((k) => !taken.has(k)));
-    // spread the boost spaces: prefer a cell far from the ones already used
+    let free = shuffle(rng, Array.from({ length: t * t }, (_, k) => k).filter((k) => !taken.has(k)));
+    if (i === 1) {                                   // board 2 gets the centre swirl
+      const inner = free.filter((k) => centre.has(k));
+      if (inner.length) return (chosen.push({ x: inner[0] % t, y: Math.floor(inner[0] / t) }), inner[0]);
+    } else {
+      free = free.filter((k) => !centre.has(k));      // keep the others off-centre
+    }
+    // spread them out: prefer a cell far from the ones already used
     let best = free[0], bestD = -1;
     for (const k of free) {
       const c = { x: k % t, y: Math.floor(k / t) };
@@ -160,7 +202,7 @@ function boardsHTML(layouts, boostSpots, t = 4, SIDE = 5.9) {
     .spot { width:${SIDE * 0.114}in; height:${SIDE * 0.114}in; }
     .bspot { width:${SIDE * 0.111}in; height:${SIDE * 0.111}in; }
     .blabel { position:absolute; bottom:0.06in; left:0; right:0; text-align:center;
-              font-size:6.5pt; font-weight:800; letter-spacing:.1em; color:${GOLD}; }
+              font-size:6.5pt; font-weight:800; letter-spacing:.1em; color:#7c3aed; }
     .bid { position:absolute; top:4px; left:7px; font-size:8pt; font-weight:800; color:#d1d5db; letter-spacing:.12em; }
   `;
   const cellIn = SIDE / t;                               // 1.475in cells at 5.9in / 4×4
@@ -172,7 +214,7 @@ function boardsHTML(layouts, boostSpots, t = 4, SIDE = 5.9) {
       const k = y * t + x;
       let inner = '';
       if (spots.has(k)) inner = `<span class="spot">${foodSVG()}</span>`;
-      else if (k === boost) inner = `<span class="bspot">${boostSVG(GOLD)}</span><span class="blabel">BOOST</span>`;
+      else if (k === boost) inner = `<span class="bspot">${swirlSVG()}</span><span class="blabel">SPECIAL</span>`;
       cells += `<div class="cell" style="left:${x * cellIn}in;top:${y * cellIn}in;width:${cellIn}in;height:${cellIn}in">${inner}</div>`;
     }
     return `<div class="mb">${cells}<span class="bid">BOARD ${idx + 1}</span></div>`;
@@ -181,7 +223,7 @@ function boardsHTML(layouts, boostSpots, t = 4, SIDE = 5.9) {
     <div class="sheet">
       <div class="cap"><b>MINI-BOARD ${i + 1} OF ${layouts.length}</b> — cut on the outer border; boards butt together
       edge-to-edge. One per player. Food spots are printed and never run out; every board's arrangement is different
-      and rotationally asymmetric${boostSpots[i] !== null ? ', and this board has a <b>BOOST</b> space' : ''}.</div>
+      and rotationally asymmetric${boostSpots[i] !== null ? ', and this board has a <b>SPECIAL</b> space' : ''}.</div>
       ${board(l, i)}
     </div>`).join(''));
 }
@@ -273,13 +315,12 @@ function tempCardsHTML(names) {
 
 /* ════════════ 4) PLAYER BOARDS — 3 per Letter sheet ════════════ */
 function playerBoardsHTML() {
-  // one space per point value; a boost icon marks the lengths that award an
-  // extra boost card (points 2, 4, 6, 8, 10 and 15)
-  const PTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15];
-  const BOOST_AT = new Set([2, 4, 6, 8, 10, 15]);
-  const START_LEN = 3;                       // first space = the starting snake
-  const LADDER = PTS.map((pts, i) => ({ len: START_LEN + i, pts, boost: BOOST_AT.has(pts) }));
-  const LAST = LADDER[LADDER.length - 1];
+  // Ten upright boxes, each holding one wooden snake stick at setup. Take a
+  // stick out every time you grow; the number under the box you just emptied
+  // is your score. Boxes 3, 6 and 10 have a boost icon printed INSIDE, so it
+  // is revealed the moment that stick comes out.
+  const PTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  const BOOST_AT = new Set([3, 6, 10]);
   const css = `
     .board { width:8.5in; height:3.62in; overflow:hidden; break-inside:avoid; display:flex;
              flex-direction:column; justify-content:space-between; padding-bottom:9pt;
@@ -289,24 +330,23 @@ function playerBoardsHTML() {
     .hdr h1 { font-size:13pt; margin:0; letter-spacing:.04em; }
     .hdr .pname { font-size:10pt; font-weight:800; padding:1pt 8pt; border:1.5px solid #fff; border-radius:20px; }
     .hdr .sub { margin-left:auto; font-size:7pt; opacity:.9; letter-spacing:.18em; }
-    .cap { font-size:7pt; font-weight:800; text-transform:uppercase; letter-spacing:.09em; color:#6b7280; padding:6pt 0.2in 0; }
-    .lenrow { display:flex; padding:3pt 0.2in 0; }
-    .slot { width:0.675in; text-align:center; }
-    .box { width:0.6in; height:0.6in; border:2px solid #374151; border-radius:6px; margin:0 auto; }
+    .cap { font-size:7pt; font-weight:800; text-transform:uppercase; letter-spacing:.09em; color:#6b7280; padding:6pt 0.35in 0; }
+    .lenrow { display:flex; justify-content:space-between; padding:4pt 0.35in 0; }
+    .slot { text-align:center; }
+    .box { width:0.52in; height:1.15in; border:2px solid #374151; border-radius:5px; margin:0 auto;
+           display:flex; align-items:center; justify-content:center; }
     .slot.max .box { border-color:${GOLD}; background:${GOLD_BG}; border-width:2.5px; }
-    .slot .p { font-size:12pt; font-weight:900; line-height:1.15; margin-top:1pt; }
-    .slot .bi { height:0.19in; display:flex; align-items:center; justify-content:center; }
-    .slot .bi .ico { width:0.17in; height:0.17in; }
-    .notes { display:flex; justify-content:space-between; padding:1pt 0.2in 0; }
-    .note { display:flex; align-items:flex-start; gap:3pt; max-width:3.4in; }
-    .note .up { width:0.675in; text-align:center; font-size:11pt; line-height:1; color:${GOLD}; flex:none; }
+    .box .ico { width:0.3in; height:0.3in; }
+    .slot .p { font-size:13pt; font-weight:900; line-height:1.2; margin-top:2pt; }
+    .notes { display:flex; justify-content:space-between; padding:2pt 0.35in 0; }
+    .note { display:flex; align-items:flex-start; gap:3pt; max-width:3.3in; }
+    .note .up { width:0.52in; text-align:center; font-size:11pt; line-height:1; color:${GOLD}; flex:none; }
     .note .txt { font-size:7.6pt; line-height:1.25; color:#374151; padding-top:1pt; }
     .note.right { text-align:right; }
   `;
-  const slot = (r) => `<div class="slot ${r.len === LAST.len ? 'max' : ''}">
-      <div class="box"></div>
-      <div class="p">${r.pts}</div>
-      <div class="bi">${r.boost ? boostSVG(GOLD) : ''}</div>
+  const slot = (pts) => `<div class="slot ${pts === 10 ? 'max' : ''}">
+      <div class="box">${BOOST_AT.has(pts) ? boostSVG(GOLD) : ''}</div>
+      <div class="p">${pts}</div>
     </div>`;
   const board = (p) => `
     <div class="board">
@@ -314,15 +354,53 @@ function playerBoardsHTML() {
         ${snakeSVG('#fff')}<h1>GOBBLE</h1><span class="pname">${p.name}</span><span class="sub">PLAYER BOARD</span>
       </div>
       <div>
-        <div class="cap">Track your length — the number is what your snake banks · ${boostSVG(GOLD).replace('class="ico"','style="width:8pt;height:8pt;display:inline-block;vertical-align:-1px"')} = take an extra boost card</div>
-        <div class="lenrow">${LADDER.map(slot).join('')}</div>
+        <div class="cap">Fill every box with a snake stick · take one out each time you grow · ${boostSVG(GOLD).replace('class="ico"','style="width:8pt;height:8pt;display:inline-block;vertical-align:-1px"')} = take a boost tile</div>
+        <div class="lenrow">${PTS.map(slot).join('')}</div>
       </div>
       <div class="notes">
-        <div class="note"><span class="up">↑</span><span class="txt">When you eat a food, <b>add a segment</b> — move up one space.</span></div>
-        <div class="note right"><span class="txt">Reach <b>maximum length</b> and bank <b>15 points</b> straight away — then every food is worth <b>2 more!</b></span><span class="up">↑</span></div>
+        <div class="note"><span class="up">↑</span><span class="txt">Eat a food, <b>take a stick out</b> and add it to your snake — the number below is your score.</span></div>
+        <div class="note right"><span class="txt">Once the last stick is out you're at <b>maximum length</b> — every food is then worth <b>2 points</b>.</span><span class="up">↑</span></div>
       </div>
     </div>`;
   return page('Gobble — Player Boards', css, PLAYERS.map(board).join(''));
+}
+
+/* ════════════ 4b) SPECIAL CARDS — poker size, 9 per sheet, fronts + backs ═══ */
+
+function specialsHTML(side = 'front') {
+  const css = `
+    .sheet { width:8.5in; height:11in; padding:0.5in 0.5in; display:flex; flex-wrap:wrap;
+             align-content:flex-start; }
+    .card { width:2.5in; height:3.5in; border:3mm solid #000; background:#fff;
+            display:flex; flex-direction:column; align-items:center; break-inside:avoid;
+            padding:0.14in 0.13in; text-align:center; }
+    .card .ico { width:100%; height:100%; }
+    .cname { font-size:12.5pt; font-weight:900; letter-spacing:.02em; line-height:1.1; }
+    .cwhen { font-size:7pt; font-weight:800; letter-spacing:.12em; text-transform:uppercase;
+             color:#7c3aed; margin:2pt 0 0; }
+    .cart { width:1.35in; height:1.35in; margin:0.1in 0 0.09in; }
+    .ctext { font-size:8.6pt; line-height:1.32; color:#1f2937; }
+    .brand { margin-top:auto; font-size:6.5pt; letter-spacing:.2em; color:#9ca3af; }
+    /* back */
+    .card.back { justify-content:center; gap:0.12in; background:#faf5ff; }
+    .back .bart { width:1.7in; height:1.7in; }
+    .back .btitle { font-size:15pt; font-weight:900; letter-spacing:.16em; color:#7c3aed; }
+  `;
+  const front = (sp) => `<div class="card">
+      <div class="cname">${sp.name}</div>
+      <div class="cwhen">${sp.when}</div>
+      <div class="cart">${sp.icon}</div>
+      <div class="ctext">${sp.text}</div>
+      <div class="brand">GOBBLE · SPECIAL</div>
+    </div>`;
+  const back = () => `<div class="card back">
+      <div class="bart">${swirlSVG()}</div>
+      <div class="btitle">SPECIAL</div>
+    </div>`;
+  const body = side === 'front'
+    ? `<div class="sheet">${SPECIALS.map(front).join('')}</div><div class="sheet">${SPECIALS.map(front).join('')}</div>`
+    : `<div class="sheet">${SPECIALS.map(back).join('')}</div><div class="sheet">${SPECIALS.map(back).join('')}</div>`;
+  return page(`Gobble — Special Cards (${side})`, css, body);
 }
 
 /* ════════════ 5) SCORE TRACK — uniform, 10 per row, to 100 ════════════ */
@@ -367,8 +445,8 @@ const boostSpots = makeBoostSpots(layouts);
 const jobs = [
   { name: 'gobble-mini-boards.pdf', html: boardsHTML(layouts, boostSpots) },
   { name: 'gobble-player-cards.pdf', html: cardsHTML() },
-  { name: 'gobble-card-update.pdf', html: cardUpdateHTML() },
-  { name: 'gobble-temp-cards.pdf', html: tempCardsHTML(['Silver', 'Brown', 'Blue', 'Orange', 'Red', 'Green']) },
+  { name: 'gobble-special-cards.pdf', html: specialsHTML('front') },
+  { name: 'gobble-special-backs.pdf', html: specialsHTML('back') },
   { name: 'gobble-player-boards.pdf', html: playerBoardsHTML() },
   { name: 'gobble-score-track.pdf', html: scoreHTML() },
 ];
