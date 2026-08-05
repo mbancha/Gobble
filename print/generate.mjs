@@ -9,7 +9,7 @@
 //   gobble-boost-stickers.pdf— 4 cell-sized swirl stickers to patch boards
 //                              printed before the boost→special change
 //   gobble-player-boards.pdf — 3 boards per Letter sheet, full-width track
-//   gobble-score-track.pdf   — uniform 10-per-row track to 100
+//   gobble-score-track.pdf   — 1 to 50, ten per row, 30 marked as game end
 // Cards/tokens are squared, edge-to-edge with shared cut lines. Print at
 // 100% / borderless.
 import { chromium } from 'playwright';
@@ -429,38 +429,40 @@ function stickersHTML(cell = 5.9 / 4) {
   return page('Gobble — Special-space stickers', css, body);
 }
 
-/* ════════════ 5) SCORE TRACK — uniform, 10 per row, to 100 ════════════ */
+/* ════════════ 5) SCORE TRACK — 1 to 50, ten per row ════════════ */
 function scoreHTML() {
   const css = `
-    .wrap { width:8.5in; padding:0.5in 0.55in; }
-    h1 { font-size:15pt; margin:0 0 2pt; letter-spacing:.05em; }
-    .sub { font-size:8.5pt; color:#6b7280; margin:0 0 12pt; }
+    .wrap { width:8.5in; padding:0.55in 0.5in; }
+    h1 { font-size:16pt; margin:0 0 2pt; letter-spacing:.05em; }
+    .sub { font-size:9pt; color:#6b7280; margin:0 0 14pt; }
     .row { display:flex; }
-    .cell { width:0.72in; height:0.52in; border:1px solid #9ca3af; margin:-0.5px;   /* 1.83 × 1.32 cm */
+    .cell { width:0.75in; height:0.75in; border:1px solid #9ca3af; margin:-0.5px;
             display:flex; align-items:center; justify-content:center;
-            font-size:10pt; font-weight:700; color:#374151; background:#fff; }
+            font-size:12pt; font-weight:700; color:#374151; background:#fff; }
     .cell.ten { background:#f3f4f6; font-weight:900; }
-    .cell.fifty { background:#fde68a; color:#78350f; font-weight:900; }
-    .legend { display:flex; gap:10pt; margin-top:12pt; align-items:center; }
-    .legend .chip { width:13pt; height:13pt; border-radius:50%; border:1.5px solid rgba(0,0,0,.2); }
-    .legend span { font-size:8pt; color:#374151; font-weight:700; }
+    .cell.end { background:#fde047; color:#713f12; font-weight:900; box-shadow:inset 0 0 0 2px #ca8a04; }
+    .legend { display:flex; gap:10pt; margin-top:14pt; align-items:center; }
+    .legend .chip { width:14pt; height:14pt; border-radius:50%; border:1.5px solid rgba(0,0,0,.2); }
+    .legend span { font-size:8.5pt; color:#374151; font-weight:700; }
+    .endnote { display:inline-block; width:14pt; height:14pt; background:#fde047; box-shadow:inset 0 0 0 2px #ca8a04; }
   `;
   let rows = '';
-  for (let r = 0; r < 10; r++) {
+  for (let r = 0; r < 5; r++) {
     let cells = '';
     for (let c = 1; c <= 10; c++) {
       const v = r * 10 + c;
-      cells += `<div class="cell ${v % 50 === 0 ? 'fifty' : v % 10 === 0 ? 'ten' : ''}">${v}</div>`;
+      cells += `<div class="cell ${v === 30 ? 'end' : v % 10 === 0 ? 'ten' : ''}">${v}</div>`;
     }
     rows += `<div class="row">${cells}</div>`;
   }
   const legend = PLAYERS.map((p) => `<span class="chip" style="background:${p.fill}"></span>`).join('');
   const body = `<div class="wrap">
-      <h1>🐍 GOBBLE — SCORE TRACK</h1>
-      <p class="sub">Markers start off the track at 0. Move when you bank points (death, max-length food, final cash-out).
-      First to the target ends the game — highest total after the living-snake cash-out wins.</p>
+      <h1>🐍 GOBBLE · SCORE TRACK</h1>
+      <p class="sub">Markers start off the track at 0. Move up as your snake grows, or catch up when it dies.
+      The moment anybody reaches <b>30</b>, the game ends and the highest total wins.</p>
       ${rows}
-      <div class="legend">${legend}<span>player markers</span></div>
+      <div class="legend">${legend}<span>player markers</span>
+        <span class="endnote"></span><span>30 ends the game</span></div>
     </div>`;
   return page('Gobble — Score Track', css, body);
 }
