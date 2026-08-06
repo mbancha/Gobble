@@ -361,6 +361,22 @@ const dev = Math.max(...agg.wins) - Math.min(...agg.wins);
 ok(dev <= agg.N * 0.12, `wins by seat within noise: [${agg.wins}] (spread ${dev})`);
 
 console.log('\n— live UI flow —');
+// countdown: overlay shows during the 3-2-1-GOBBLE! and hides after
+const cd = await page.evaluate(async () => {
+  const L = Gobble.LIVE;
+  L.countdownMs = 50;
+  const run = L.runCountdown();
+  await new Promise((r) => setTimeout(r, 80));
+  const during = { hidden: document.getElementById('countdownOverlay').classList.contains('hidden'),
+                   text: document.getElementById('countdownText').textContent };
+  await run;
+  const after = document.getElementById('countdownOverlay').classList.contains('hidden');
+  L.countdownMs = 0;                                   // instant rounds for the rest of the tests
+  return { during, after };
+});
+ok(!cd.during.hidden && ['3', '2', '1', 'GOBBLE!'].includes(cd.during.text) && cd.after,
+   `countdown overlay runs 3-2-1-GOBBLE! then hides (saw "${cd.during.text}")`);
+
 await page.click('#btnNewGame');
 await page.waitForTimeout(400);
 ok(await page.isVisible('#stripArea'), 'game started and the command strip area is showing');
@@ -372,6 +388,36 @@ const placed = await page.evaluate(async () => {
   return e.validChain(chain) ? 'ok' : 'illegal chain';
 });
 ok(placed === 'ok', `auto-placement produces a legal ${await page.evaluate(() => Gobble.LIVE.engine.spawnFootprint())}-cell chain`);
+
+// death → respawn prompt with a frozen panic timer and a ghost while placing
+const rf = await page.evaluate(async () => {
+  const L = Gobble.LIVE, e = L.engine;
+  L.clearTimers();
+  const h = e.players.find((p) => !p.isBot);
+  if (!h.alive) L.autoPlace();                         // finish round-1 placement first
+  e.killSnake(h, 'wall', null, [], { x: 0, y: 0 });    // …then die for real
+  await L.startProgramming();                          // dead human's turn → prompt
+  const prompt = !document.getElementById('respawnOverlay').classList.contains('hidden');
+  startPanic(30);                                      // a bot "locked" while they place
+  const bornPaused = L.panic && L.panic.pausedLeft != null;
+  document.getElementById('btnRespawn').click();
+  const stripIsPlacement = document.getElementById('stripArea').textContent.includes('panic timer paused');
+  // grow a 2-cell ghost from a legal corner chain
+  const chain = e.allChains(true)[0];
+  L.tryExtendChain(chain[0]);
+  L.tryExtendChain(chain[1]);
+  const ghost = Renderer.highlight && Renderer.highlight.cells.length === 2;
+  const stillPaused = L.panic && L.panic.pausedLeft != null;
+  L.autoPlace();                                       // finish placement
+  const resumed = L.panic && L.panic.pausedLeft == null;
+  const promptGone = document.getElementById('respawnOverlay').classList.contains('hidden');
+  stopPanic();
+  return { prompt, bornPaused, stripIsPlacement, ghost, stillPaused, resumed, promptGone };
+});
+ok(rf.prompt, 'a dead player gets the respawn prompt at the top of their turn');
+ok(rf.bornPaused && rf.stillPaused, 'the panic timer freezes while they respawn');
+ok(rf.stripIsPlacement && rf.ghost, 'placement shows the paused note and a ghost silhouette of the chain');
+ok(rf.resumed && rf.promptGone, 'placing the snake resumes the timer and clears the prompt');
 
 console.log('\n— final error sweep —');
 ok(consoleErrors.length === 0, `no console/page errors across the session ${consoleErrors.slice(0, 3).join(' | ')}`);

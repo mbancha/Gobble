@@ -135,6 +135,8 @@
 
   @keyframes fadeIn { from { opacity: 0; transform: translateY(4px);} to { opacity: 1; transform: none;} }
   .fade-in { animation: fadeIn .18s ease-out; }
+  @keyframes countPop { 0% { transform: scale(2.2); opacity: 0; } 35% { transform: scale(1); opacity: 1; } 100% { transform: scale(.94); opacity: .95; } }
+  .count-pop { animation: countPop .4s ease-out; }
 
   /* number inputs: keep spinners visible & compact */
   input[type=number] { -moz-appearance: textfield; }
@@ -252,6 +254,22 @@
               <div id="passText" class="text-xl font-bold"></div>
               <p class="text-sm text-slate-400 max-w-xs mx-auto">Pass the device. Other players, look away — the command strip is secret!</p>
               <button id="passStart" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg px-6 py-2.5">Start programming</button>
+            </div>
+          </div>
+
+          <!-- round-start countdown -->
+          <div id="countdownOverlay" class="hidden absolute inset-0 z-10 pointer-events-none flex items-center justify-center">
+            <div id="countdownText" class="text-8xl font-black text-white drop-shadow-[0_0_35px_rgba(52,211,153,0.7)]"></div>
+          </div>
+
+          <!-- respawn prompt (a snake died last round) -->
+          <div id="respawnOverlay" class="hidden absolute inset-0 bg-slate-950/95 backdrop-blur-sm flex items-center justify-center z-20">
+            <div class="text-center space-y-4 fade-in">
+              <div class="text-5xl">💀</div>
+              <div id="respawnText" class="text-xl font-bold"></div>
+              <p class="text-sm text-slate-400 max-w-xs mx-auto">Place a new snake: 4 contiguous cells, at least one touching a board corner.
+                The panic timer is paused while you place.</p>
+              <button id="btnRespawn" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg px-6 py-2.5">🐣 Respawn</button>
             </div>
           </div>
 
@@ -1716,18 +1734,46 @@ const Renderer = {
       }
     }
 
-    // placement-mode chain highlight (first cell = the head, drawn boldest)
+    // placement mode: a ghost silhouette of the snake being placed —
+    // translucent body stroke + head circle with a directional nose, and a
+    // dashed ring on the tail end showing where to extend from
     if (this.highlight?.cells?.length) {
-      this.highlight.cells.forEach((c, i) => {
-        const hx = this.px(c.x), hy = this.px(c.y);
-        ctx.fillStyle = this.highlight.color || '#fff';
-        ctx.globalAlpha = i === 0 ? 0.3 : 0.18;
-        ctx.fillRect(hx + 2, hy + 2, s - 4, s - 4);
-        ctx.globalAlpha = 1;
-        ctx.strokeStyle = this.highlight.color || '#fff';
-        ctx.lineWidth = i === 0 ? 3 : 1.5;
-        ctx.strokeRect(hx + 2, hy + 2, s - 4, s - 4);
-      });
+      const cells = this.highlight.cells;
+      const col = this.highlight.color || '#fff';
+      ctx.save();
+      if (cells.length >= 2) {                        // body: thick rounded stroke
+        ctx.globalAlpha = 0.4;
+        ctx.strokeStyle = col;
+        ctx.lineWidth = s * 0.6;
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(this.center(cells[0].x), this.center(cells[0].y));
+        for (let i = 1; i < cells.length; i++) ctx.lineTo(this.center(cells[i].x), this.center(cells[i].y));
+        ctx.stroke();
+      }
+      const h = cells[0];
+      ctx.globalAlpha = 0.55;                         // head: circle + nose
+      ctx.fillStyle = col;
+      ctx.beginPath(); ctx.arc(this.center(h.x), this.center(h.y), s * 0.38, 0, Math.PI * 2); ctx.fill();
+      if (cells[1]) {
+        const dx = h.x - cells[1].x, dy = h.y - cells[1].y;
+        const nx = this.center(h.x) + dx * s * 0.22, ny = this.center(h.y) + dy * s * 0.22;
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ctx.beginPath();
+        ctx.arc(nx, ny, s * 0.09, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      const t = cells[cells.length - 1];              // extend-from hint
+      const incomplete = engine && cells.length < engine.spawnFootprint();
+      if (incomplete) {
+        ctx.globalAlpha = 0.9;
+        ctx.strokeStyle = col;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 3]);
+        ctx.strokeRect(this.px(t.x) + 2, this.px(t.y) + 2, s - 4, s - 4);
+        ctx.setLineDash([]);
+      }
+      ctx.restore();
     }
 
     // transient effects
@@ -1809,8 +1855,31 @@ const LIVE = {
 
   /* ── programming phase ─────────────────────────────────────────────── */
 
-  startProgramming() {
+  countdownMs: 450,                      // per step; tests set 0 to skip
+
+  /** 3 · 2 · 1 · GOBBLE! — announces that a new round has begun. */
+  async runCountdown() {
+    if (!this.countdownMs) return;
+    const mySession = this.session;
+    showEl('countdownOverlay');
+    const steps = [['3', 'panic'], ['2', 'panic'], ['1', 'panic'], ['GOBBLE!', 'cashout']];
+    for (const [text, snd] of steps) {
+      if (this.session !== mySession) break;
+      const el = $('countdownText');
+      el.textContent = text;
+      el.classList.remove('count-pop');
+      void el.offsetWidth;                             // restart the pop animation
+      el.classList.add('count-pop');
+      Sound.play(snd);
+      await sleep(text === 'GOBBLE!' ? this.countdownMs * 1.6 : this.countdownMs);
+    }
+    hideEl('countdownOverlay');
+  },
+
+  async startProgramming() {
     const e = this.engine;
+    await this.runCountdown();
+    if (this.engine !== e) return;         // a new game started mid-countdown
     this.phase = 'programming';
     for (const p of e.players) { p.locked = false; p.commands = null; }
     e.startRound();                                  // free boosts refresh each round
@@ -1843,6 +1912,7 @@ const LIVE = {
 
   nextHuman() {
     hideEl('passOverlay');
+    hideEl('respawnOverlay');
     Renderer.highlight = null;
     if (!this.humanQueue.length) {
       this.currentHuman = null;
@@ -1868,8 +1938,23 @@ const LIVE = {
       showEl('passOverlay');
       renderWaitingStrip();
     } else {
-      this.placing ? renderPlacementStrip() : renderHumanStrip();
+      this.beginHumanTurn();
     }
+  },
+
+  /** The current human's turn actually starts: a dead player gets the
+      respawn prompt (with the panic timer frozen) before placing. */
+  beginHumanTurn() {
+    const p = this.engine.players[this.currentHuman];
+    if (!this.placing) { renderHumanStrip(); return; }
+    pausePanic();
+    if (p.deaths > 0) {
+      $('respawnText').innerHTML = `<span style="color:${p.color}">●</span> ${esc(p.name)}, your snake crashed!`;
+      showEl('respawnOverlay');
+      renderWaitingStrip();
+      return;                              // the Respawn button continues to placement
+    }
+    renderPlacementStrip();
   },
 
   /* ── spawn placement (dead humans at the top of their turn) ────────── */
@@ -1932,6 +2017,8 @@ const LIVE = {
     this.placing = false;
     this.placeChain = [];
     Renderer.highlight = null;
+    hideEl('respawnOverlay');
+    resumePanic();
     consumeEvents(events);
     Renderer.draw(this.engine);
     renderScoreboard();
@@ -2078,10 +2165,15 @@ const LIVE = {
 function startPanic(seconds) {
   stopPanic();
   const deadline = performance.now() + seconds * 1000;
-  LIVE.panic = { deadline, raf: 0, lastSec: null };
+  LIVE.panic = { deadline, raf: 0, lastSec: null, pausedLeft: null };
   showEl('panicWrap');
+  if (LIVE.placing && LIVE.currentHuman !== null) pausePanic();
   const tick = () => {
     if (!LIVE.panic) return;
+    if (LIVE.panic.pausedLeft != null) {              // frozen while someone places
+      LIVE.panic.raf = requestAnimationFrame(tick);
+      return;
+    }
     const left = Math.max(0, LIVE.panic.deadline - performance.now());
     const frac = left / (seconds * 1000);
     const secLeft = Math.ceil(left / 1000);            // tock each of the last 5 seconds
@@ -2100,6 +2192,17 @@ function stopPanic() {
   LIVE.panic = null;
   hideEl('panicWrap');
   $('panicLabel').classList.remove('panic-critical');
+}
+/** Freeze the countdown (a dead player is placing their snake). */
+function pausePanic() {
+  if (!LIVE.panic || LIVE.panic.pausedLeft != null) return;
+  LIVE.panic.pausedLeft = Math.max(0, LIVE.panic.deadline - performance.now());
+  $('panicLabel').textContent = `⏸ ${(LIVE.panic.pausedLeft / 1000).toFixed(1)}s`;
+}
+function resumePanic() {
+  if (!LIVE.panic || LIVE.panic.pausedLeft == null) return;
+  LIVE.panic.deadline = performance.now() + LIVE.panic.pausedLeft;
+  LIVE.panic.pausedLeft = null;
 }
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -2226,7 +2329,7 @@ function renderPlacementStrip() {
         <span class="w-3 h-3 rounded-full" style="background:${p.color}"></span>
         <b>${esc(p.name)}</b>
         <span class="text-slate-400 text-xs">🐣 place your snake — ${stepText}</span>
-        <span class="ml-auto text-[11px] text-slate-500">${need} contiguous cells touching any mini-board corner · covered food isn't eaten</span>
+        <span class="ml-auto text-[11px] text-slate-500">${need} contiguous cells touching any mini-board corner · covered food isn't eaten · ⏸ panic timer paused</span>
       </div>
       <div class="flex items-center gap-3">
         <div class="flex gap-1.5">${pips}</div>
@@ -2441,7 +2544,7 @@ function consumeEvents(events) {
 function setPhaseText(t) { $('phaseText').innerHTML = t; }
 function showEl(id) { $(id).classList.remove('hidden'); }
 function hideEl(id) { $(id).classList.add('hidden'); }
-function hideOverlays() { hideEl('passOverlay'); hideEl('gameOverOverlay'); }
+function hideOverlays() { hideEl('passOverlay'); hideEl('gameOverOverlay'); hideEl('respawnOverlay'); hideEl('countdownOverlay'); }
 
 /* ════════════════════════════════════════════════════════════════════════
    §9 SIMULATION DASHBOARD
@@ -2607,7 +2710,11 @@ function boot() {
   $('btnCloseOver').onclick = () => hideEl('gameOverOverlay');
   $('passStart').onclick = () => {
     hideEl('passOverlay');
-    LIVE.placing ? renderPlacementStrip() : renderHumanStrip();
+    LIVE.beginHumanTurn();
+  };
+  $('btnRespawn').onclick = () => {
+    hideEl('respawnOverlay');
+    renderPlacementStrip();
   };
   $('speedSelect').onchange = () => { LIVE.speed = Number($('speedSelect').value); };
 
