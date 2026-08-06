@@ -1815,6 +1815,8 @@ const LIVE = {
   phase: 'idle',            // idle | programming | resolving | gameover
   session: 0,               // guards stale async loops after New Game
   humanQueue: [],           // seats still to program this round
+  placeQueue: [],           // seats still to respawn before the round starts
+  roundStarted: false,      // the countdown has fired and programming is open
   currentHuman: null,       // seat currently editing the strip
   placing: false,           // current human is choosing a spawn placement
   placeChain: [],           // [{x,y}…] head-first placement chain being built
@@ -1843,6 +1845,8 @@ const LIVE = {
     Renderer.highlight = null;
     this.placing = false;
     this.placeChain = [];
+    this.placeQueue = [];
+    this.roundStarted = false;
     Renderer.draw(this.engine);
     this.startProgramming();
   },
@@ -1876,21 +1880,80 @@ const LIVE = {
     hideEl('countdownOverlay');
   },
 
-  async startProgramming() {
+  /**
+   * A round runs in two stages: every human who is off the board respawns
+   * first (panic timer frozen), THEN the countdown fires and programming
+   * begins for everyone at once.
+   */
+  startProgramming() {
     const e = this.engine;
-    await this.runCountdown();
-    if (this.engine !== e) return;         // a new game started mid-countdown
     this.phase = 'programming';
+    this.roundStarted = false;
     for (const p of e.players) { p.locked = false; p.commands = null; }
-    e.startRound();                                  // free boosts refresh each round
-    // dead bots auto-place immediately; dead humans place during their turn
-    consumeEvents(e.respawnDead((p) => p.isBot));
+    e.startRound();                                  // personal boosts refresh each round
+    consumeEvents(e.respawnDead((p) => p.isBot));    // dead bots auto-place
     Renderer.draw(e);
     $('roundChip').textContent = `Round ${e.round}`;
-    setPhaseText(`Programming — ${e.cfg.commandSlots} moves. First lock-in starts the ${e.cfg.panicSeconds}s panic timer!`);
+    // stage 1: humans who need to place a new snake
+    this.placeQueue = e.players.filter((p) => !p.isBot && !p.alive).map((p) => p.seat);
+    this.humanQueue = e.players.filter((p) => !p.isBot).map((p) => p.seat);
+    this.currentHuman = null;
+    setPhaseText(this.placeQueue.length
+      ? `Place your snake to start round ${e.round}…`
+      : `Round ${e.round} starting…`);
+    renderScoreboard();
+    this.nextPlacement();
+  },
+
+  /** Walk the humans who owe a placement; when none are left, start the round. */
+  nextPlacement() {
+    hideEl('passOverlay');
+    hideEl('respawnOverlay');
+    Renderer.highlight = null;
+    if (!this.placeQueue.length) { this.currentHuman = null; this.startRoundNow(); return; }
+    const seat = this.placeQueue.shift();
+    const p = this.engine.players[seat];
+    if (p.alive) return this.nextPlacement();
+    // board completely jammed (ultra rare)? this player sits the round out
+    if (!this.engine.smartPlacement()) {
+      log(`⛔ ${esc(p.name)} found no room to spawn — waiting a round`);
+      return this.nextPlacement();
+    }
+    this.currentHuman = seat;
+    this.placing = true;
+    this.placeChain = [];
+    if (this.multiHuman) {
+      $('passText').innerHTML = `<span style="color:${p.color}">●</span> ${esc(p.name)} — you're up`;
+      showEl('passOverlay');
+      renderWaitingStrip();
+    } else {
+      this.beginPlacementTurn();
+    }
+  },
+
+  /** A dead player's placement turn: prompt (if they crashed), timer frozen. */
+  beginPlacementTurn() {
+    const p = this.engine.players[this.currentHuman];
+    pausePanic();
+    if (p.deaths > 0) {
+      $('respawnText').innerHTML = `<span style="color:${p.color}">●</span> ${esc(p.name)}, your snake crashed!`;
+      showEl('respawnOverlay');
+      renderWaitingStrip();
+      return;                              // the Respawn button continues to placement
+    }
+    renderPlacementStrip();
+  },
+
+  /** Everyone is on the board: count it down, then let programming begin. */
+  async startRoundNow() {
+    if (this.roundStarted) return;
+    this.roundStarted = true;
+    const e = this.engine, mySession = this.session;
+    await this.runCountdown();
+    if (this.session !== mySession || this.engine !== e || this.phase !== 'programming') return;
+    setPhaseText(`Programming — ${e.cfg.commandSlots} tiles. First lock-in starts the ${e.cfg.panicSeconds}s panic timer!`);
 
     // Bots think now, lock on a short human-ish delay (starts the panic clock).
-    const mySession = this.session;
     for (const p of e.players) {
       if (!p.alive || !p.isBot) continue;
       consumeEvents(Bot.playSpecials(e, p));
@@ -1901,10 +1964,7 @@ const LIVE = {
         this.lockPlayer(p, plan);
       }, delay));
     }
-
-    // Humans queue up (hot-seat privacy: one strip at a time). Dead humans
-    // are queued too — their turn starts with a spawn placement.
-    this.humanQueue = e.players.filter((p) => !p.isBot).map((p) => p.seat);
+    // stage 2: humans program, one strip at a time (hot-seat privacy)
     this.currentHuman = null;
     this.nextHuman();
     renderScoreboard();
@@ -1922,13 +1982,9 @@ const LIVE = {
     }
     const seat = this.humanQueue.shift();
     const p = this.engine.players[seat];
-    // board completely jammed (ultra rare)? this player sits the round out
-    if (!p.alive && !this.engine.smartPlacement()) {
-      log(`⛔ ${esc(p.name)} found no room to spawn — waiting a round`);
-      return this.nextHuman();
-    }
+    if (!p.alive) return this.nextHuman();   // never found room to spawn: sits the round out
     this.currentHuman = seat;
-    this.placing = !p.alive;
+    this.placing = false;
     this.placeChain = [];
     this.draft = Array.from({ length: this.engine.cfg.commandSlots }, () => ({ dir: null, boost: false }));
     this.draftSel = 0;
@@ -1942,20 +1998,8 @@ const LIVE = {
     }
   },
 
-  /** The current human's turn actually starts: a dead player gets the
-      respawn prompt (with the panic timer frozen) before placing. */
-  beginHumanTurn() {
-    const p = this.engine.players[this.currentHuman];
-    if (!this.placing) { renderHumanStrip(); return; }
-    pausePanic();
-    if (p.deaths > 0) {
-      $('respawnText').innerHTML = `<span style="color:${p.color}">●</span> ${esc(p.name)}, your snake crashed!`;
-      showEl('respawnOverlay');
-      renderWaitingStrip();
-      return;                              // the Respawn button continues to placement
-    }
-    renderPlacementStrip();
-  },
+  /** The current human's programming turn begins. */
+  beginHumanTurn() { renderHumanStrip(); },
 
   /* ── spawn placement (dead humans at the top of their turn) ────────── */
 
@@ -2022,7 +2066,7 @@ const LIVE = {
     consumeEvents(events);
     Renderer.draw(this.engine);
     renderScoreboard();
-    renderHumanStrip();                    // placement done → program the strip
+    this.nextPlacement();                  // next respawn, or start the round
   },
 
   /** A player commits their strip. First lock triggers the panic timer. */
@@ -2061,7 +2105,9 @@ const LIVE = {
     this.placeChain = [];
     Renderer.highlight = null;
     this.humanQueue = [];
+    this.placeQueue = [];
     hideEl('passOverlay');
+    hideEl('respawnOverlay');
     this.lockCurrentHuman(true);                       // current editor keeps their partial strip
     for (const p of this.engine.players) {             // queued humans + straggler bots: straight lines
       if (!p.alive || p.locked) continue;
@@ -2079,7 +2125,8 @@ const LIVE = {
     const open = this.engine.players.filter((p) => p.alive && !p.locked);
     // humans still placing/programming (or queued) block resolution even
     // while their snake is off the board
-    const humansPending = this.currentHuman !== null || this.humanQueue.length > 0;
+    const humansPending = this.currentHuman !== null || this.humanQueue.length > 0
+      || this.placeQueue.length > 0 || !this.roundStarted;
     if (!open.length && !humansPending && this.phase === 'programming') {
       stopPanic();
       this.resolveRound();
@@ -2710,7 +2757,7 @@ function boot() {
   $('btnCloseOver').onclick = () => hideEl('gameOverOverlay');
   $('passStart').onclick = () => {
     hideEl('passOverlay');
-    LIVE.beginHumanTurn();
+    LIVE.placing ? LIVE.beginPlacementTurn() : LIVE.beginHumanTurn();
   };
   $('btnRespawn').onclick = () => {
     hideEl('respawnOverlay');

@@ -396,7 +396,7 @@ const rf = await page.evaluate(async () => {
   const h = e.players.find((p) => !p.isBot);
   if (!h.alive) L.autoPlace();                         // finish round-1 placement first
   e.killSnake(h, 'wall', null, [], { x: 0, y: 0 });    // …then die for real
-  await L.startProgramming();                          // dead human's turn → prompt
+  L.startProgramming();                                // dead human respawns first
   const prompt = !document.getElementById('respawnOverlay').classList.contains('hidden');
   startPanic(30);                                      // a bot "locked" while they place
   const bornPaused = L.panic && L.panic.pausedLeft != null;
@@ -408,16 +408,21 @@ const rf = await page.evaluate(async () => {
   L.tryExtendChain(chain[1]);
   const ghost = Renderer.highlight && Renderer.highlight.cells.length === 2;
   const stillPaused = L.panic && L.panic.pausedLeft != null;
+  const beforeRoundStart = L.roundStarted;             // countdown hasn't run yet
   L.autoPlace();                                       // finish placement
   const resumed = L.panic && L.panic.pausedLeft == null;
   const promptGone = document.getElementById('respawnOverlay').classList.contains('hidden');
+  await new Promise((r) => setTimeout(r, 30));         // let startRoundNow settle
+  const afterRoundStart = L.roundStarted;
   stopPanic();
-  return { prompt, bornPaused, stripIsPlacement, ghost, stillPaused, resumed, promptGone };
+  return { prompt, bornPaused, stripIsPlacement, ghost, stillPaused, resumed, promptGone,
+           beforeRoundStart, afterRoundStart };
 });
 ok(rf.prompt, 'a dead player gets the respawn prompt at the top of their turn');
 ok(rf.bornPaused && rf.stillPaused, 'the panic timer freezes while they respawn');
 ok(rf.stripIsPlacement && rf.ghost, 'placement shows the paused note and a ghost silhouette of the chain');
 ok(rf.resumed && rf.promptGone, 'placing the snake resumes the timer and clears the prompt');
+ok(!rf.beforeRoundStart && rf.afterRoundStart, 'the round (and its countdown) only starts once everyone has respawned');
 
 console.log('\n— final error sweep —');
 ok(consoleErrors.length === 0, `no console/page errors across the session ${consoleErrors.slice(0, 3).join(' | ')}`);
