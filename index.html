@@ -64,9 +64,23 @@
       appear on deaths. Both leave the game once eaten; a pickup sitting on
       a food spot covers it. Food and bounty grant growth only — boost cards
       come solely from your free per-round boost and ×2-energy tokens.
-    • BOOSTS: every player permanently owns freeBoostsPerRound boost(s) that
-      refresh each round; extra boosts spend BANKED cards (cap
-      maxBoostCards). An unaffordable boost downgrades to a 1-cell move.
+    • BOOST TILES: a slot holds one tile — movement (1 space) or boost
+      (boostDistance spaces), each pointing a direction. Every player owns
+      freeBoostsPerRound personal boost tile(s) that refresh each round;
+      extra boosts spend SPARE tiles from milestones and Rev Up (cap
+      maxBoostCards). An unaffordable boost downgrades to a movement tile.
+    • SPECIAL CARDS: crossing a printed swirl draws from an 18-card deck
+      (9 effects × 2; discards reshuffle). All nine effects are implemented:
+      Rev Up (+4 spare boosts) and Flip Flop (reverse the snake) resolve on
+      play; Vroom Vroom (+1 boost distance), Nom Nom (beads grow +1),
+      Bounce (a crash reverses you onto your tail instead, once), Star
+      Power (survive a same-cell head-on unless the other snake also has
+      it), Careful Slither (a boost may stop after 2 cells to dodge a
+      fatal 3rd) and Victory Lap (end of round: +length if alive) last one
+      round and expire at startRound. Whoopsie is automatic: it rotates a
+      movement tile that is about to crash. Bots play Specials with simple
+      heuristics; simultaneous plays resolve in seat order (the physical
+      "player order from the last timer flip").
     • Respawn placement: a returning snake is placed on ANY 3 contiguous
       cells free of snakes and pickups — bends allowed — and at least one
       cell must TOUCH A CORNER of some mini-board — unless no corner
@@ -379,11 +393,11 @@ const CONFIG_FIELDS = [
   // ── movement & boost ──
   { id: 'commandSlots',        label: 'Command slots',           min: 2,  max: 8,   def: 6,   group: 'Movement & boost', hint: 'Cards programmed per round (min 2)' },
   { id: 'boostDistance',       label: 'Boost distance',          min: 2,  max: 6,   def: 3,   group: 'Movement & boost', hint: 'Cells covered by one boost card slide' },
-  { id: 'freeBoostsPerRound',  label: 'Free boosts / round',     min: 0,  max: 3,   def: 1,   group: 'Movement & boost', hint: 'Every player always has this boost — it refreshes each round' },
-  { id: 'maxBoostCards',       label: 'Max banked energy',       min: 0,  max: 20,  def: 6,   group: 'Movement & boost', hint: 'Cap on EXTRA boost cards banked from ×2-energy tokens' },
+  { id: 'freeBoostsPerRound',  label: 'Personal boost tiles',    min: 0,  max: 3,   def: 1,   group: 'Movement & boost', hint: 'Always yours; back in hand every round' },
+  { id: 'maxBoostCards',       label: 'Max spare boost tiles',   min: 0,  max: 20,  def: 6,   group: 'Movement & boost', hint: 'Cap on spare boost tiles from milestones and Rev Up' },
   // ── printed food ──
   { id: 'foodSpotsPerTile',    label: 'Food spots / mini-board', min: 1,  max: 16,  def: 5,   group: 'Printed food', hint: 'Fixed spots printed on every mini-board — they never deplete' },
-  { id: 'boostSpotPercent',    label: 'Boards with special space (%)', min: 0, max: 100, def: 67, group: 'Printed food', hint: 'Share of mini-boards carrying a printed special space (draw a Special; never depletes)' },
+  { id: 'boostSpotPercent',    label: 'Boards with special space (%)', min: 0, max: 100, def: 67, group: 'Printed food', hint: 'Share of mini-boards carrying a printed swirl (draw a Special card; never depletes)' },
   { id: 'x2FoodPercent',       label: '×2 food share (%)',       min: 0,  max: 100, def: 0,   group: 'Printed food', hint: 'Share of printed spots worth ×2 (0 by default — ×2 comes from bounty only)' },
   // ── match & guards ──
   { id: 'pointsToWin',         label: 'Points to win',           min: 10, max: 500, def: 30,  group: 'Match rules', hint: 'Instant victory threshold' },
@@ -506,6 +520,22 @@ function makeConfig(overrides = {}) {
   return cfg;
 }
 
+/** The nine Special cards (2 copies each in the deck). The engine implements
+    every effect; `auto` cards are not played from the hand — they trigger
+    themselves (Whoopsie fires when a programmed move would crash). */
+const SPECIALS = [
+  { slug: 'flip-flop',       name: 'Flip Flop',       icon: '🔁' },
+  { slug: 'whoopsie',        name: 'Whoopsie',        icon: '🔄', auto: true },
+  { slug: 'vroom-vroom',     name: 'Vroom Vroom',     icon: '💨' },
+  { slug: 'nom-nom',         name: 'Nom Nom',         icon: '😋' },
+  { slug: 'bounce',          name: 'Bounce',          icon: '🏓' },
+  { slug: 'star-power',      name: 'Star Power',      icon: '⭐' },
+  { slug: 'rev-up',          name: 'Rev Up',          icon: '⏫' },
+  { slug: 'careful-slither', name: 'Careful Slither', icon: '🐌' },
+  { slug: 'victory-lap',     name: 'Victory Lap',     icon: '🏁' },
+];
+const SPECIAL_BY_SLUG = Object.fromEntries(SPECIALS.map((sp) => [sp.slug, sp]));
+
 /* ════════════════════════════════════════════════════════════════════════
    §2 EVEN-SPREAD SAMPLING (used for each mini-board's printed food layout)
    Greedy farthest-point sampling: start at the board center, then repeatedly
@@ -569,7 +599,7 @@ function randomFoodLayout(t, count, rng) {
 
    Tick resolution API (lets the live UI animate every sub-step while the
    headless runner burns through them synchronously):
-     beginTick(t)  → { maxSteps, acts }   a boost card is spent here
+     beginTick(t)  → { maxSteps, acts, events }   a boost tile is spent here
      stepTick()    → { events, more }     one simultaneous sub-step
      finishTick()  → { events }           boost-crash stats + win check
      nextRound()   → { events }           food respawn, round++ / respawns
@@ -605,7 +635,9 @@ class Engine {
       color: SEAT_COLORS[i].bright,
       chartColor: SEAT_COLORS[i].chart,
       score: 0,
-      boosts: 0,                    // BANKED bonus boost cards (the 1-per-round boost is free)
+      boosts: 0,                    // SPARE boost tiles (the personal boost refreshes each round)
+      specials: [],                 // Special cards in hand (slugs)
+      fx: {},                       // Specials active this round (slug → true)
       freeBoostsUsed: 0,            // free boosts spent this round
       deaths: 0,
       alive: false,
@@ -653,14 +685,65 @@ class Engine {
         const free = rngShuffle(rng, Array.from({ length: t * t }, (_, k) => k).filter((k) => !taken.has(k)));
         if (free.length) {
           const c = { x: free[0] % t, y: Math.floor(free[0] / t) };
-          this.spots.set(cellKey(tile.x0 + c.x, tile.y0 + c.y), { kind: 'boost', value: 1 });
+          this.spots.set(cellKey(tile.x0 + c.x, tile.y0 + c.y), { kind: 'special', value: 1 });
         }
       }
     });
 
     // dynamic pickups (one-shot): snake food dropped by deaths
-    // ×2-energy tokens. cellKey → { kind:'energy'|'bounty', value, ownerSeat? }
-    this.food = new Map();
+    this.food = new Map();          // cellKey → { kind:'bounty', value, ownerSeat }
+
+    // the Special deck: 9 effects × 2 copies, shuffled; discards recycle
+    this.specialDeck = rngShuffle(rng, SPECIALS.flatMap((sp) => [sp.slug, sp.slug]));
+    this.specialDiscard = [];
+  }
+
+  /* ── Special cards ─────────────────────────────────────────────────── */
+
+  /** Draw the top Special into a player's hand (reshuffling discards if the
+      deck ran dry). Returns the draw event, or nothing if every card is out. */
+  drawSpecial(p, at) {
+    if (!this.specialDeck.length && this.specialDiscard.length) {
+      this.specialDeck = rngShuffle(this.rng, this.specialDiscard);
+      this.specialDiscard = [];
+    }
+    const slug = this.specialDeck.pop();
+    if (!slug) return [];
+    p.specials.push(slug);
+    return [{ t: 'specialDraw', seat: p.seat, at }];
+  }
+
+  /** Play a Special from hand (programming phase / between rounds). Rev Up
+      and Flip Flop resolve instantly; the rest arm a this-round effect that
+      expires at startRound. Whoopsie can't be played by hand — it fires
+      itself. Returns events, or null if the play is illegal. */
+  playSpecial(p, slug) {
+    const i = p.specials.indexOf(slug);
+    if (i < 0 || slug === 'whoopsie') return null;
+    p.specials.splice(i, 1);
+    this.specialDiscard.push(slug);
+    const events = [{ t: 'specialPlay', seat: p.seat, slug }];
+    if (slug === 'rev-up') {
+      p.boosts = Math.min(this.cfg.maxBoostCards, p.boosts + 4);
+    } else if (slug === 'flip-flop') {
+      this.reverseSnake(p);
+      events.push({ t: 'flip', seat: p.seat });
+    } else {
+      p.fx[slug] = true;
+    }
+    return events;
+  }
+
+  /** Head becomes tail: reverse the body and derive the new facing (away
+      from the first distinct neck cell — spawn stacks make neighbours equal). */
+  reverseSnake(p) {
+    p.body.reverse();
+    const h = p.body[0];
+    const neck = p.body.find((c) => c.x !== h.x || c.y !== h.y);
+    if (neck) {
+      const dx = h.x - neck.x, dy = h.y - neck.y;
+      p.facing = dx === 1 ? 'right' : dx === -1 ? 'left' : dy === 1 ? 'down' : 'up';
+    }
   }
 
   /* ── setup ─────────────────────────────────────────────────────────── */
@@ -843,51 +926,82 @@ class Engine {
 
   /* ── tick resolution ───────────────────────────────────────────────── */
 
-  /** Reset the per-round free boost for everyone (call at each round start). */
+  /** Round start: personal boosts refresh and last round's Specials expire. */
   startRound() {
-    for (const p of this.players) p.freeBoostsUsed = 0;
+    for (const p of this.players) { p.freeBoostsUsed = 0; p.fx = {}; }
   }
 
   /**
-   * Start resolving command slot `tickIdx`. Every player always has
-   * `freeBoostsPerRound` boost(s) (their own permanent boost card); extra
-   * boosts spend BANKED cards drawn from ×2-energy tokens. An unaffordable
-   * boost downgrades to a normal 1-cell move.
+   * Start resolving command slot `tickIdx`. A slot holds one TILE: a
+   * movement tile (1 space) or a boost tile (boostDistance spaces), each
+   * pointing a direction. The personal boost refreshes every round; extra
+   * boosts spend spare tiles. An unaffordable boost downgrades to a
+   * movement tile. Whoopsie auto-rotates a movement tile that would crash;
+   * Vroom Vroom stretches this player's boosts by one space.
    */
   beginTick(tickIdx) {
     const acts = [];
+    const events = [];
+    const occNow = this.occupancy();
     for (const p of this.players) {
       if (!p.alive) continue;
       const cmd = (p.commands && p.commands[tickIdx]) || { dir: p.facing, boost: false };
-      let steps = 1, boost = false;
-      if (cmd.dir == null) {
-        steps = 0;                                   // stay put: player locked fewer moves
+      let dir = cmd.dir, steps = 1, boost = false;
+      if (dir == null) {
+        steps = 0;                                   // stay put: player locked fewer tiles
       } else if (cmd.boost && (p.freeBoostsUsed < this.cfg.freeBoostsPerRound || p.boosts >= 1)) {
         if (p.freeBoostsUsed < this.cfg.freeBoostsPerRound) p.freeBoostsUsed++;
-        else p.boosts -= 1;                          // spend a banked card
-        steps = this.cfg.boostDistance;
+        else p.boosts -= 1;                          // spend a spare tile (back to the stack)
+        steps = this.cfg.boostDistance + (p.fx['vroom-vroom'] ? 1 : 0);
         boost = true;
         this.stats.boostExecuted++;
+      } else if (p.specials.includes('whoopsie')) {
+        // Whoopsie: rotate a movement tile that's about to crash
+        const d = DIRS[dir];
+        const fatal = (x, y) => !this.inBounds(x, y) || occNow.has(cellKey(x, y));
+        if (fatal(p.body[0].x + d.dx, p.body[0].y + d.dy)) {
+          const safe = DIR_LIST.filter((alt) => alt !== dir &&
+            !fatal(p.body[0].x + DIRS[alt].dx, p.body[0].y + DIRS[alt].dy));
+          if (safe.length) {
+            const tasty = safe.find((alt) =>
+              this.edibleAt(cellKey(p.body[0].x + DIRS[alt].dx, p.body[0].y + DIRS[alt].dy)));
+            dir = tasty || safe[0];
+            p.specials.splice(p.specials.indexOf('whoopsie'), 1);
+            this.specialDiscard.push('whoopsie');
+            events.push({ t: 'whoopsie', seat: p.seat });
+          }
+        }
       }
-      acts.push({ p, dir: cmd.dir, steps, boost });
+      acts.push({ p, dir, steps, boost });
     }
     // Boost slides resolve FIRST (sub-steps 0..boostDistance-1), THEN every
     // normal mover steps once, together. A booster therefore claims a
     // contested square before an arrow-mover arrives — the late arrival dies
     // against its side. Mutual death needs same square, same sub-step.
-    const boostLen = acts.some((a) => a.boost) ? this.cfg.boostDistance : 0;
+    const boostLen = acts.reduce((m, a) => Math.max(m, a.boost ? a.steps : 0), 0);
     const hasNormal = acts.some((a) => !a.boost && a.steps > 0);
     this._tick = { idx: tickIdx, acts, step: 0, boostLen, maxSteps: boostLen + (hasNormal ? 1 : 0) };
-    return { maxSteps: this._tick.maxSteps, acts };
+    return { maxSteps: this._tick.maxSteps, acts, events };
   }
 
   /** Execute ONE simultaneous sub-step. Returns {events, more}. */
   stepTick() {
     const T = this._tick;
     if (!T || T.step >= T.maxSteps) return { events: [], more: false };
-    const movers = T.step < T.boostLen
+    let movers = T.step < T.boostLen
       ? T.acts.filter((a) => a.boost && a.p.alive && a.steps > T.step)
       : T.acts.filter((a) => !a.boost && a.steps > 0 && a.p.alive);
+    // Careful Slither: after 2 cells of a boost, stop short of a fatal cell
+    if (T.step >= 2 && movers.some((a) => a.boost && a.p.fx['careful-slither'])) {
+      const occ = this.occupancy();
+      movers = movers.filter((a) => {
+        if (!a.boost || !a.p.fx['careful-slither']) return true;
+        const d = DIRS[a.dir];
+        const tx = a.p.body[0].x + d.dx, ty = a.p.body[0].y + d.dy;
+        if (!this.inBounds(tx, ty) || occ.has(cellKey(tx, ty))) { a.steps = T.step; return false; }
+        return true;
+      });
+    }
     const events = movers.length ? this.resolveSubstep(movers) : [];
     T.step++;
     return { events, more: T.step < T.maxSteps };
@@ -919,8 +1033,9 @@ class Engine {
     const events = [];
 
     // (1)+(2) compute targets & how many segments this move will grow.
-    // Only FOOD/BOUNTY tokens (with room under the cap) grow you; boost
-    // tokens draw cards but don't grow, so their tail still clears.
+    // Only FOOD/BOUNTY (with room under the cap) grow you; a special space
+    // draws a card but doesn't grow, so its tail still clears. Nom Nom makes
+    // each bead of snake food grow one extra.
     for (const m of movers) {
       const d = DIRS[m.dir];
       m.tx = m.p.body[0].x + d.dx;
@@ -928,9 +1043,11 @@ class Engine {
       m.inB = this.inBounds(m.tx, m.ty);
       m.token = m.inB ? this.edibleAt(cellKey(m.tx, m.ty)) : null;
       let grow = 0;
-      if (m.token && m.token.kind !== 'energy' && m.token.kind !== 'boost') {   // only food & bounty grow
+      if (m.token && m.token.kind !== 'special') {   // only food & bounty grow
         const room = this.cfg.maxSnakeLength - m.p.body.length;
-        grow = Math.max(0, Math.min(m.token.value, room));
+        const v = m.token.value + (m.token.kind === 'bounty' && m.p.fx['nom-nom'] ? 1 : 0);
+        grow = Math.max(0, Math.min(v, room));
+        m.tokenValue = v;
       }
       m.growUnits = grow;
       m.cleared = null;
@@ -954,10 +1071,30 @@ class Engine {
       (byTarget.get(k) || byTarget.set(k, []).get(k)).push(m);
     }
     for (const group of byTarget.values()) {
-      if (group.length >= 2) for (const m of group) m.deathCause ??= 'head';
+      if (group.length < 2) continue;
+      // Star Power: a lone holder survives a head-to-head; two holders
+      // cancel out and both die with everyone else
+      const sp = group.filter((m) => m.p.fx['star-power']);
+      for (const m of group) {
+        if (sp.length === 1 && m === sp[0]) continue;
+        m.deathCause ??= 'head';
+      }
     }
 
-    // (4a) deaths: bank points, flip body chips to bounty, leave the board
+    // Bounce: instead of crashing, the head lands on the tail and the snake
+    // keeps going the other way (the rest of this tile's movement is lost)
+    for (const m of movers) {
+      if (!m.deathCause || !m.p.fx['bounce']) continue;
+      delete m.deathCause;
+      m.bounced = true;
+      m.p.fx['bounce'] = false;                      // one save per card
+      if (m.cleared) m.p.body.push(m.cleared);       // put the lifted tail back
+      this.reverseSnake(m.p);
+      m.steps = 0;                                   // forfeit the rest of this tile
+      events.push({ t: 'bounce', seat: m.p.seat });
+    }
+
+    // (4a) deaths: drop snake food and leave the board
     for (const m of movers) {
       if (!m.deathCause) continue;
       this.killSnake(m.p, m.deathCause, m.cleared, events, { x: m.tx, y: m.ty });
@@ -965,7 +1102,7 @@ class Engine {
 
     // (4b) survivors: slide the head, then resolve any token entered
     for (const m of movers) {
-      if (m.deathCause) continue;
+      if (m.deathCause || m.bounced) continue;
       const p = m.p;
       p.body.unshift({ x: m.tx, y: m.ty });
       p.facing = m.dir;
@@ -977,10 +1114,9 @@ class Engine {
       if (this.food.has(k)) this.food.delete(k);
       const at = { x: m.tx, y: m.ty };
 
-      if (f.kind === 'boost' || f.kind === 'energy') {
-        // printed boost space: +1 banked card, no growth (tail already cleared)
-        p.boosts = Math.min(this.cfg.maxBoostCards, p.boosts + f.value);
-        events.push({ t: 'specialDraw', seat: p.seat, at, value: f.value });
+      if (f.kind === 'special') {
+        // printed swirl: draw a Special card (no growth; tail already cleared)
+        events.push(...this.drawSpecial(p, at));
         continue;
       }
 
@@ -998,7 +1134,7 @@ class Engine {
           events.push({ t: 'milestone', seat: p.seat, len: L, at });
         }
       }
-      const pointUnits = f.value - m.growUnits;             // overflow at/near the cap
+      const pointUnits = (m.tokenValue ?? f.value) - m.growUnits;   // overflow at/near the cap
       // You are worth points equal to how far your snake has grown: every
       // segment gained scores 1 point on the spot. Dying neither adds nor
       // removes anything — you already have them.
@@ -1068,6 +1204,18 @@ class Engine {
    */
   nextRound() {
     const events = [];
+    // Victory Lap: at the end of the round, a living player scores their
+    // length (a dead one gets nothing)
+    for (const p of this.players) {
+      if (p.fx['victory-lap'] && p.alive) {
+        p.score += p.body.length;
+        events.push({ t: 'victorylap', seat: p.seat, pts: p.body.length });
+      }
+    }
+    if (this.players.some((p) => p.score >= this.cfg.pointsToWin)) {
+      events.push(...this.endGame('score'));
+      return { events };
+    }
     if (this.round >= this.cfg.maxRounds) {
       events.push(...this.endGame('roundcap'));
       return { events };
@@ -1096,6 +1244,33 @@ class Engine {
         full boostDistance, a flat 25% chance to flag the slot as a boost.
    ════════════════════════════════════════════════════════════════════════ */
 const Bot = {
+  /** Play held Specials with simple table heuristics, at round start. */
+  playSpecials(engine, p) {
+    const events = [];
+    const { cfg, rng } = engine;
+    const play = (slug) => { const ev = engine.playSpecial(p, slug); if (ev) events.push(...ev); };
+    const has = (slug) => p.specials.includes(slug);
+    if (has('rev-up') && p.boosts <= cfg.maxBoostCards - 4) play('rev-up');
+    if (p.alive) {
+      const h = p.body[0], d = DIRS[p.facing];
+      const occ = engine.occupancy();
+      const blockedAhead = !engine.inBounds(h.x + d.dx, h.y + d.dy) ||
+        occ.has(cellKey(h.x + d.dx, h.y + d.dy));
+      if (has('flip-flop') && blockedAhead) play('flip-flop');
+      if (has('victory-lap') && p.body.length >= cfg.startingLength + 4) play('victory-lap');
+      const beads = engine.food.size > 0;
+      if (has('nom-nom') && beads && rng() < 0.6) play('nom-nom');
+      const canBoost = p.freeBoostsUsed < cfg.freeBoostsPerRound || p.boosts > 0;
+      if (has('vroom-vroom') && canBoost && rng() < 0.4) play('vroom-vroom');
+      if (has('careful-slither') && canBoost && rng() < 0.3) play('careful-slither');
+      const enemyNear = engine.players.some((q) => q !== p && q.alive &&
+        Math.abs(q.body[0].x - h.x) + Math.abs(q.body[0].y - h.y) <= 3);
+      if (has('star-power') && enemyNear && rng() < 0.5) play('star-power');
+      if (has('bounce') && rng() < 0.35) play('bounce');
+    }
+    return events;
+  },
+
   plan(engine, p) {
     const { cfg, rng } = engine;
     const cmds = [];
@@ -1189,12 +1364,9 @@ const Bot = {
         const tok = foods.find((f) => f.k === k && !eaten.has(f.k));
         // grow only on food/bounty with room; boost tokens draw cards instead
         let grow = 0;
-        if (tok && tok.kind !== 'energy' && tok.kind !== 'boost') grow = Math.max(0, Math.min(tok.value, cfg.maxSnakeLength - own.length));
+        if (tok && tok.kind !== 'special') grow = Math.max(0, Math.min(tok.value, cfg.maxSnakeLength - own.length));
         own.unshift({ x: nx, y: ny }); bump(k, +1);
-        if (tok) {
-          eaten.add(k);
-          if (tok.kind === 'energy' || tok.kind === 'boost') bank = Math.min(cfg.maxBoostCards, bank + tok.value);
-        }
+        if (tok) eaten.add(k);
         if (grow > 0) { for (let u = 1; u < grow; u++) { const nk = cellKey(own[1].x, own[1].y); own.splice(2, 0, { ...own[1] }); bump(nk, +1); } }
         else { const t = own.pop(); bump(cellKey(t.x, t.y), -1); }
       }
@@ -1220,6 +1392,7 @@ function runHeadlessGame(cfg, seed) {
     e.startRound();
     e.respawnDead();
     // …then every living bot writes its strip
+    for (const p of e.players) if (p.alive) Bot.playSpecials(e, p);
     for (const p of e.players) p.commands = p.alive ? Bot.plan(e, p) : null;
     // resolution phase: slot by slot, sub-step by sub-step
     for (let t = 0; t < cfg.commandSlots && !e.gameOver; t++) {
@@ -1419,7 +1592,7 @@ const Renderer = {
     // printed spots (persist forever; drawn under snakes & pickups)
     for (const [k, f] of engine.spots) {
       const x = this.center(k & 63), y = this.center(k >> 6);
-      if (f.kind === 'boost') {                    // printed SPECIAL space: a colourful swirl
+      if (f.kind === 'special') {                  // printed SPECIAL space: a colourful swirl
         ctx.save();
         ctx.lineWidth = Math.max(1.6, s * 0.075);
         ctx.lineCap = 'round';
@@ -1475,22 +1648,7 @@ const Renderer = {
     };
     for (const [k, f] of engine.food) {
       const x = this.center(k & 63), y = this.center(k >> 6);
-      if (f.kind === 'energy') {
-        // ×2 energy token: violet disc with a white lightning bolt
-        ctx.save();
-        ctx.shadowColor = '#a78bfa'; ctx.shadowBlur = s * 0.3;
-        ctx.fillStyle = '#7c3aed';
-        ctx.beginPath(); ctx.arc(x, y, s * 0.22, 0, Math.PI * 2); ctx.fill();
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = '#fff';
-        ctx.beginPath();
-        ctx.moveTo(x + s * 0.06, y - s * 0.13); ctx.lineTo(x - s * 0.08, y + s * 0.02);
-        ctx.lineTo(x - s * 0.01, y + s * 0.02); ctx.lineTo(x - s * 0.05, y + s * 0.14);
-        ctx.lineTo(x + s * 0.09, y - s * 0.02); ctx.lineTo(x + s * 0.01, y - s * 0.02);
-        ctx.closePath(); ctx.fill();
-        ctx.restore();
-        if (f.value === 2) stamp2(x, y, '#5b21b6');
-      } else {
+      {
         // snake food (dropped by a death): a yellow glass dome, seen from the side
         ctx.save();
         ctx.shadowColor = '#facc15'; ctx.shadowBlur = s * 0.35;
@@ -1666,6 +1824,7 @@ const LIVE = {
     const mySession = this.session;
     for (const p of e.players) {
       if (!p.alive || !p.isBot) continue;
+      consumeEvents(Bot.playSpecials(e, p));
       const plan = Bot.plan(e, p);
       const delay = 600 + Math.random() * 1400;
       this.botTimers.push(setTimeout(() => {
@@ -1854,7 +2013,8 @@ const LIVE = {
       if (this.session !== mySession || e.gameOver) return this.session === mySession ? this.showGameOver() : undefined;
       setPhaseText(`Resolving move ${t + 1} of ${e.cfg.commandSlots}…`);
       renderRevealStrip(t);
-      const { acts } = e.beginTick(t);
+      const { acts, events: tickEvents } = e.beginTick(t);
+      consumeEvents(tickEvents);
       // boost trails render from each boosting snake's tick-start head
       const trailStarts = acts.filter((a) => a.boost).map((a) => ({ p: a.p, x: a.p.body[0].x, y: a.p.body[0].y }));
       if (trailStarts.length) Sound.play('boost');
@@ -1959,10 +2119,10 @@ function renderHumanStrip() {
       <div class="flex items-center gap-2 mb-2 text-sm">
         <span class="w-3 h-3 rounded-full" style="background:${p.color}"></span>
         <b>${esc(p.name)}</b>
-        <span class="text-slate-400 text-xs">program 2–${e.cfg.commandSlots} moves · empty slots stop in place</span>
+        <span class="text-slate-400 text-xs">program 2–${e.cfg.commandSlots} tiles · empty slots stop in place</span>
         <span class="ml-auto text-xs ${overBudget ? 'text-rose-400 font-bold' : 'text-slate-400'}">
-          ⚡ boosts ${boostCount}/${budget} (${e.cfg.freeBoostsPerRound} free + ${p.boosts} banked)
-          ${overBudget ? ' — over budget: extra boosts will downgrade!' : ''}
+          ⚡ boost tiles ${boostCount}/${budget} (personal + ${p.boosts} spare)
+          ${overBudget ? ' — not enough tiles: extras become movement!' : ''}
         </span>
       </div>
       <div class="flex items-start gap-2 flex-wrap">
@@ -1971,11 +2131,12 @@ function renderHumanStrip() {
             <div class="flex flex-col items-center gap-1">
               <button data-slot="${i}"
                 class="w-12 h-12 rounded-lg border-2 text-2xl font-black transition-colors
-                       ${i === LIVE.draftSel ? 'border-emerald-400 bg-slate-700' : 'border-slate-700 bg-slate-800 hover:bg-slate-700'}
-                       ${d.dir ? 'text-white' : 'text-slate-600'}">${d.dir ? DIRS[d.dir].glyph : '·'}</button>
-              <button data-boost="${i}" title="Boost: spend 1 card to slide ${e.cfg.boostDistance} cells this move"
+                       ${i === LIVE.draftSel ? 'border-emerald-400' : d.boost && d.dir ? 'border-amber-500' : 'border-slate-700'}
+                       ${d.boost && d.dir ? 'bg-amber-950/70 text-amber-300' : i === LIVE.draftSel ? 'bg-slate-700 text-white' : 'bg-slate-800 hover:bg-slate-700'}
+                       ${d.dir ? (d.boost ? '' : 'text-white') : 'text-slate-600'}">${d.dir ? (d.boost ? '⫸'.replace('⫸', { up: '⏫', down: '⏬', left: '⏪', right: '⏩' }[d.dir]) : DIRS[d.dir].glyph) : '·'}</button>
+              <button data-boost="${i}" title="Place a boost tile: move 3 spaces the way it points"
                 class="text-[10px] px-1.5 py-0.5 rounded font-bold border
-                       ${d.boost ? 'bg-violet-500 text-white border-violet-300' : 'bg-slate-800 text-slate-500 border-slate-700 hover:text-violet-300'}">⚡${d.boost ? ' ×3' : ''}</button>
+                       ${d.boost ? 'bg-amber-400 text-slate-950 border-amber-300' : 'bg-slate-800 text-slate-500 border-slate-700 hover:text-amber-300'}">${d.boost ? 'BOOST ×3' : 'boost?'}</button>
             </div>`).join('')}
         </div>
         <div class="flex flex-col gap-1.5 ml-2">
@@ -1985,7 +2146,7 @@ function renderHumanStrip() {
             <button data-dir="down"  class="dirbtn">↓</button>
             <button data-dir="right" class="dirbtn">→</button>
           </div>
-          <p class="text-[10px] text-slate-500">arrows/WASD · B = boost · ⌫ undo</p>
+          <p class="text-[10px] text-slate-500">arrows/WASD · B = boost tile · ⌫ undo</p>
         </div>
         <div class="flex flex-col gap-1.5 ml-auto">
           <button id="btnLock" ${draftMoveCount >= 2 ? '' : 'disabled'}
@@ -1995,6 +2156,19 @@ function renderHumanStrip() {
           <button id="btnClearStrip" class="px-3 py-1 rounded-lg text-xs bg-slate-800 hover:bg-slate-700 text-slate-400">clear</button>
         </div>
       </div>
+      ${p.specials.length || Object.keys(p.fx).length ? `
+      <div class="flex items-center gap-1.5 flex-wrap mt-2 text-[10px]">
+        <span class="text-slate-500 font-bold tracking-wider">SPECIALS:</span>
+        ${p.specials.map((slug, i) => {
+          const sp = SPECIAL_BY_SLUG[slug];
+          return `<button data-play-special="${i}" ${sp.auto ? 'disabled' : ''}
+            title="${sp.auto ? 'plays itself if a movement tile would crash' : 'play now (lasts this round)'}"
+            class="px-1.5 py-0.5 rounded border font-bold ${sp.auto
+              ? 'bg-slate-800 text-slate-500 border-slate-700 cursor-default'
+              : 'bg-violet-900/60 text-violet-200 border-violet-600 hover:bg-violet-700'}">${sp.icon} ${sp.name}${sp.auto ? ' (auto)' : ''}</button>`;
+        }).join('')}
+        ${Object.keys(p.fx).map((slug) => `<span class="px-1.5 py-0.5 rounded bg-violet-500 text-white font-bold">${SPECIAL_BY_SLUG[slug].icon} ${SPECIAL_BY_SLUG[slug].name} ACTIVE</span>`).join('')}
+      </div>` : ''}
     </div>`;
   // style the dir pad via a shared class (Tailwind can't target dynamic HTML in <style> easily)
   $('stripArea').querySelectorAll('.dirbtn').forEach((b) => {
@@ -2009,6 +2183,14 @@ function renderHumanStrip() {
       const i = Number(b.dataset.boost);
       LIVE.draft[i].boost = !LIVE.draft[i].boost;
       renderHumanStrip();
+    };
+  });
+  $('stripArea').querySelectorAll('[data-play-special]').forEach((b) => {
+    b.onclick = () => {
+      const p2 = LIVE.engine.players[LIVE.currentHuman];
+      const slug = p2.specials[Number(b.dataset.playSpecial)];
+      const ev = LIVE.engine.playSpecial(p2, slug);
+      if (ev) { consumeEvents(ev); Renderer.draw(LIVE.engine); renderScoreboard(); renderHumanStrip(); }
     };
   });
   $('btnLock').onclick = () => LIVE.draft.filter((d) => d.dir).length >= 2 && LIVE.lockCurrentHuman();
@@ -2093,11 +2275,12 @@ function renderRevealStrip(tick) {
             ${Array.from({ length: e.cfg.commandSlots }, (_, i) => {
               const c = p.commands?.[i];
               const dead = !p.alive && i >= tick;   // greyed once the snake is gone
+              const isBoost = c?.boost && c?.dir;
               return `<span class="w-7 h-7 rounded-md flex items-center justify-center text-sm font-bold relative
-                         ${i === tick ? 'bg-slate-600 ring-1 ring-emerald-400' : 'bg-slate-800'}
+                         ${isBoost ? 'bg-amber-950/80 text-amber-300 ring-1 ring-amber-500' : i === tick ? 'bg-slate-600' : 'bg-slate-800'}
+                         ${i === tick ? 'ring-1 ring-emerald-400' : ''}
                          ${dead ? 'opacity-25' : ''}">
-                        ${c ? (c.dir ? DIRS[c.dir].glyph : '■') : '·'}
-                        ${c?.boost ? '<span class="absolute -top-1 -right-1 text-[9px]">⚡</span>' : ''}
+                        ${c ? (c.dir ? (isBoost ? { up: '⏫', down: '⏬', left: '⏪', right: '⏩' }[c.dir] : DIRS[c.dir].glyph) : '■') : '·'}
                       </span>`;
             }).join('')}
           </div>
@@ -2164,7 +2347,7 @@ function renderScoreboard() {
           <span class="text-[10px] text-slate-500">/${e.cfg.pointsToWin}</span>
         </div>
         <div class="flex items-center gap-2 mt-1 text-[11px] text-slate-400">
-          <span title="banked boost cards (everyone also gets 1 free boost per round)" class="flex gap-px items-center">${pips}</span>
+          <span title="spare boost tiles (your personal boost refreshes every round)" class="flex gap-px items-center">${pips}</span>
           <span title="length">🐍 ${p.alive ? p.body.length : '—'}</span>
           <span title="deaths">💀 ${p.deaths}</span>
           <span class="ml-auto text-[10px] ${p.locked && p.alive ? 'text-emerald-400' : 'text-slate-500'}">${state}</span>
@@ -2191,7 +2374,7 @@ function consumeEvents(events) {
     if (ev.t === 'death') {
       const p = e.players[ev.seat];
       sounds.add('death');
-      log(`💥 <b>${esc(p.name)}</b> died — ${CAUSE_LABELS[ev.cause].toLowerCase()} at length ${ev.len} (+${ev.pts} pts, ${ev.chips.length} snake food)`, p.color);
+      log(`💥 <b>${esc(p.name)}</b> died: ${CAUSE_LABELS[ev.cause].toLowerCase()} at length ${ev.len}, leaving ${ev.chips.length} snake food`, p.color);
       if (ev.at && e.inBounds(ev.at.x, ev.at.y)) Renderer.addEffect({ kind: 'boom', x: ev.at.x, y: ev.at.y, color: p.color, life: 650 });
       else if (ev.chips[0]) Renderer.addEffect({ kind: 'boom', ...ev.chips[0], color: p.color, life: 650 });
     }
@@ -2204,12 +2387,37 @@ function consumeEvents(events) {
     else if (ev.t === 'specialDraw') {
       const p = e.players[ev.seat];
       sounds.add('bounty');
-      log(`🌀 ${esc(p.name)} crossed a special space — draw a Special card`, p.color);
+      log(`🌀 ${esc(p.name)} crossed a special space and drew a Special card`, p.color);
+    }
+    else if (ev.t === 'specialPlay') {
+      const p = e.players[ev.seat];
+      const sp = SPECIAL_BY_SLUG[ev.slug];
+      sounds.add('cashout');
+      log(`${sp.icon} ${esc(p.name)} played <b>${sp.name}</b>`, p.color);
+    }
+    else if (ev.t === 'whoopsie') {
+      const p = e.players[ev.seat];
+      sounds.add('place');
+      log(`🔄 ${esc(p.name)}'s Whoopsie rotated a tile away from a crash`, p.color);
+    }
+    else if (ev.t === 'bounce') {
+      const p = e.players[ev.seat];
+      sounds.add('place');
+      log(`🏓 ${esc(p.name)} Bounced: head onto tail, crash avoided`, p.color);
+    }
+    else if (ev.t === 'flip') {
+      const p = e.players[ev.seat];
+      log(`🔁 ${esc(p.name)} flip-flopped: head and tail swapped`, p.color);
+    }
+    else if (ev.t === 'victorylap') {
+      const p = e.players[ev.seat];
+      sounds.add('cashout');
+      log(`🏁 ${esc(p.name)}'s Victory Lap scores +${ev.pts}`, p.color);
     }
     else if (ev.t === 'milestone') {
       const p = e.players[ev.seat];
       sounds.add('bounty');
-      log(`⚡ ${esc(p.name)} reached length ${ev.len} — take an extra boost card`, p.color);
+      log(`⚡ ${esc(p.name)} emptied a milestone box — take a boost tile`, p.color);
     }
     else if (ev.t === 'bonus') {
       const p = e.players[ev.seat];

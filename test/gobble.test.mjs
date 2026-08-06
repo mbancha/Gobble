@@ -66,16 +66,17 @@ const sc = await page.evaluate(() => {
     out.growSpot = e.spots.has(K(6, 2));         // printed food never depletes
     out.growScore = A.score;                     // 2 points for 2 segments
   }
-  // 2) a printed SPECIAL space draws a card (modelled as a boost tile) and persists
+  // 2) a printed SPECIAL space draws a Special card and persists
   {
     const e = mk();
     const A = e.players[0];
     put(A, [{ x: 5, y: 2 }, { x: 4, y: 2 }, { x: 3, y: 2 }, { x: 3, y: 2 }], 'right');
-    e.spots.set(K(6, 2), { kind: 'boost', value: 1 });
+    e.spots.set(K(6, 2), { kind: 'special', value: 1 });
     A.commands = [{ dir: 'right', boost: false }];
     run(e);
     out.spLen = A.body.length;                   // unchanged
-    out.spBank = A.boosts;                       // +1
+    out.spHand = A.specials.length;              // drew 1 card
+    out.spDeck = e.specialDeck.length;           // 18 − 1
     out.spStays = e.spots.has(K(6, 2));
   }
   // 3) continuous scoring: +1 per segment, +2 per food at max, dying adds nothing
@@ -131,7 +132,7 @@ const sc = await page.evaluate(() => {
     out.geoHole = !e3.inBounds(7, 7);
     out.geoCorners = e3.corners.size;
     out.geoFood = [...e3.spots.values()].filter((f) => f.kind === 'food').length;
-    out.geoSpecial = [...e3.spots.values()].filter((f) => f.kind === 'boost').length;
+    out.geoSpecial = [...e3.spots.values()].filter((f) => f.kind === 'special').length;
   }
   // 7) boosts resolve before steppers, so a booster claims a contested cell
   {
@@ -158,6 +159,103 @@ const sc = await page.evaluate(() => {
     run(e);
     out.fbX2 = A.body[0].x;                      // + 3
   }
+  // 9a) Specials: Rev Up, Vroom Vroom, Careful Slither
+  {
+    const e = mk({ commandSlots: 1 });
+    const A = e.players[0];
+    put(A, [{ x: 0, y: 1 }, { x: 0, y: 2 }, { x: 0, y: 3 }, { x: 0, y: 4 }], 'up');
+    A.specials = ['rev-up', 'vroom-vroom'];
+    e.playSpecial(A, 'rev-up');
+    out.revBank = A.boosts;                       // +4 spare tiles
+    e.playSpecial(A, 'vroom-vroom');
+    A.commands = [{ dir: 'right', boost: true }];
+    e.startRound2 = null;                         // (keep fx armed: no startRound here)
+    run(e);
+    out.vroomX = A.body[0].x;                     // boost went 3+1 = 4 cells
+  }
+  {
+    const e = mk({ commandSlots: 1 });
+    const A = e.players[0];
+    put(A, [{ x: 8, y: 1 }, { x: 8, y: 2 }, { x: 8, y: 3 }, { x: 8, y: 4 }], 'up');
+    A.specials = ['careful-slither'];
+    e.playSpecial(A, 'careful-slither');
+    A.commands = [{ dir: 'right', boost: true }];  // 3 cells right would hit the wall at x=12? no: 8→11 ok; use wall
+    put(A, [{ x: 9, y: 1 }, { x: 9, y: 2 }, { x: 9, y: 3 }, { x: 9, y: 4 }], 'up');
+    run(e);
+    out.carefulX = A.body[0].x;                   // 9→11 then stops: 3rd cell is the wall
+    out.carefulAlive = A.alive;
+  }
+  // 9b) Star Power: lone holder survives a head-on; double holders both die
+  {
+    const e = mk({ commandSlots: 1 });
+    const A = e.players[0], B = e.players[1];
+    put(A, [{ x: 4, y: 2 }, { x: 3, y: 2 }, { x: 2, y: 2 }, { x: 1, y: 2 }], 'right');
+    put(B, [{ x: 6, y: 2 }, { x: 7, y: 2 }, { x: 8, y: 2 }, { x: 9, y: 2 }], 'left');
+    A.specials = ['star-power']; e.playSpecial(A, 'star-power');
+    A.commands = [{ dir: 'right', boost: false }];
+    B.commands = [{ dir: 'left', boost: false }];
+    run(e);
+    out.starA = A.alive; out.starB = B.alive;     // A lives at (5,2), B dies
+    out.starAx = A.body[0].x;
+  }
+  {
+    const e = mk({ commandSlots: 1 });
+    const A = e.players[0], B = e.players[1];
+    put(A, [{ x: 4, y: 2 }, { x: 3, y: 2 }, { x: 2, y: 2 }, { x: 1, y: 2 }], 'right');
+    put(B, [{ x: 6, y: 2 }, { x: 7, y: 2 }, { x: 8, y: 2 }, { x: 9, y: 2 }], 'left');
+    A.specials = ['star-power']; e.playSpecial(A, 'star-power');
+    B.specials = ['star-power']; e.playSpecial(B, 'star-power');
+    A.commands = [{ dir: 'right', boost: false }];
+    B.commands = [{ dir: 'left', boost: false }];
+    run(e);
+    out.star2 = !A.alive && !B.alive;             // mutual Star Power cancels
+  }
+  // 9c) Bounce reverses instead of dying; Flip Flop swaps ends; Victory Lap pays
+  {
+    const e = mk({ commandSlots: 1 });
+    const A = e.players[0];
+    put(A, [{ x: 0, y: 2 }, { x: 1, y: 2 }, { x: 2, y: 2 }, { x: 3, y: 2 }], 'left');
+    A.specials = ['bounce']; e.playSpecial(A, 'bounce');
+    A.commands = [{ dir: 'left', boost: false }];  // straight into the wall
+    run(e);
+    out.bounceAlive = A.alive;
+    out.bounceHead = `${A.body[0].x},${A.body[0].y}`;  // head now at old tail (3,2)
+    out.bounceFacing = A.facing;                        // pointing right, away from neck
+  }
+  {
+    const e = mk();
+    const A = e.players[0];
+    put(A, [{ x: 0, y: 2 }, { x: 1, y: 2 }, { x: 2, y: 2 }, { x: 3, y: 2 }], 'left');
+    A.specials = ['flip-flop'];
+    e.playSpecial(A, 'flip-flop');
+    out.flipHead = `${A.body[0].x},${A.body[0].y}`;     // (3,2)
+    out.flipFacing = A.facing;                          // right
+    A.specials = ['victory-lap'];
+    e.playSpecial(A, 'victory-lap');
+    const before = A.score;
+    e.nextRound();
+    out.vlGain = A.score - before;                      // +4 (length)
+  }
+  // 9d) Whoopsie auto-rotates a fatal movement tile
+  {
+    const e = mk({ commandSlots: 1 });
+    const A = e.players[0];
+    put(A, [{ x: 0, y: 2 }, { x: 1, y: 2 }, { x: 2, y: 2 }, { x: 3, y: 2 }], 'left');
+    A.specials = ['whoopsie'];
+    A.commands = [{ dir: 'left', boost: false }];       // would hit the wall
+    run(e);
+    out.whoopsAlive = A.alive;
+    out.whoopsUsed = !A.specials.includes('whoopsie');
+    out.whoopsDiscard = e.specialDiscard.includes('whoopsie');
+  }
+  // 9e) deck recycles its discards
+  {
+    const e = mk();
+    const A = e.players[0];
+    e.specialDeck = []; e.specialDiscard = ['rev-up'];
+    const ev = e.drawSpecial(A, { x: 0, y: 0 });
+    out.recycled = ev.length === 1 && A.specials.length === 1 && e.specialDiscard.length === 0;
+  }
   // 9) the player board's ten spaces
   {
     const t = makeConfig().lengthScoreTable;
@@ -171,8 +269,8 @@ const sc = await page.evaluate(() => {
 });
 ok(sc.growLen === 6 && sc.growStack && sc.growSpot && sc.growScore === 2,
    `food: +2 growth, spot persists, scores 2 as it grows (len ${sc.growLen}, score ${sc.growScore})`);
-ok(sc.spLen === 4 && sc.spBank === 1 && sc.spStays,
-   `special space: draws a card, no growth, never depletes (bank ${sc.spBank})`);
+ok(sc.spLen === 4 && sc.spHand === 1 && sc.spDeck === 17 && sc.spStays,
+   `special space: draws a Special card, no growth, never depletes (hand ${sc.spHand}, deck ${sc.spDeck})`);
 ok(sc.contGrow === 1 && sc.contMax === 3 && sc.contDeath === 0,
    `continuous scoring: +1 per segment, +2 per food at max (${sc.contGrow}→${sc.contMax}), dying adds ${sc.contDeath}`);
 ok(sc.msLen === 10 && sc.msBoosts === 2,
@@ -183,6 +281,13 @@ ok(sc.geoWH === '8x8' && sc.geoCells === 48 && sc.geoHole && sc.geoCorners === 1
    `geometry: 3 players → L (${sc.geoWH}, ${sc.geoCells} cells, ${sc.geoFood} food, ${sc.geoSpecial} special)`);
 ok(sc.bpBooster && sc.bpStepper, 'boost priority: the booster claims the contested cell, the stepper dies');
 ok(sc.fbX === 5 && sc.fbX2 === 8, `free boost: 1/round, extras downgrade, refreshes (x=${sc.fbX}→${sc.fbX2})`);
+ok(sc.revBank === 4 && sc.vroomX === 4, `Rev Up banks 4 tiles; Vroom Vroom boost covers 4 cells (x=${sc.vroomX})`);
+ok(sc.carefulX === 11 && sc.carefulAlive, `Careful Slither stops the boost at 2 cells instead of hitting the wall (x=${sc.carefulX})`);
+ok(sc.starA && !sc.starB && sc.starAx === 5 && sc.star2, 'Star Power: lone holder survives the head-on; mutual holders both die');
+ok(sc.bounceAlive && sc.bounceHead === '3,2' && sc.bounceFacing === 'right', `Bounce: head lands on the tail and lives (${sc.bounceHead} facing ${sc.bounceFacing})`);
+ok(sc.flipHead === '3,2' && sc.flipFacing === 'right' && sc.vlGain === 4, `Flip Flop reverses; Victory Lap pays +${sc.vlGain}`);
+ok(sc.whoopsAlive && sc.whoopsUsed && sc.whoopsDiscard, 'Whoopsie auto-rotates a fatal tile and is spent');
+ok(sc.recycled, 'the Special deck reshuffles its discards when empty');
 ok(sc.ladder === '0,1,2,5,9,10', `ladder of ten spaces: got ${sc.ladder}`);
 ok(sc.target === 30 && sc.panic === 10 && sc.start === 4,
    `defaults: first to ${sc.target}, ${sc.panic}s timer, start length ${sc.start}`);
@@ -218,6 +323,7 @@ const inv = await page.evaluate(() => {
       let guard = 0;
       while (!e.gameOver && guard++ < 500) {
         e.startRound(); e.respawnDead(); check('respawn');
+        for (const p of e.players) if (p.alive) Bot.playSpecials(e, p);
         for (const p of e.players) if (p.alive) p.commands = Bot.plan(e, p);
         for (let t = 0; t < cfg.commandSlots && !e.gameOver; t++) {
           e.beginTick(t);
