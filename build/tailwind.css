@@ -1,0 +1,9 @@
+/* Source stylesheet for Gobble's compiled Tailwind build.
+   Rebuild the <style> block inside index.html with:  npm run build:css
+
+   The scanned file is a copy of index.html with that generated block stripped
+   out (build-css.mjs writes it just before compiling). Pointing @source at
+   index.html itself would feed the compiled CSS back into the class scanner,
+   so every build would find new "classes" inside its own output. */
+@import "tailwindcss" source(none);
+@source "../node_modules/.gobble-scan.html";

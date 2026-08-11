@@ -1,6 +1,6 @@
 // Smoke + property tests for Gobble (index.html), driven through real Chromium.
 //   node test/gobble.test.mjs
-// Requires: npm i -D playwright @tailwindcss/browser   (browsers preinstalled)
+// Requires: npm i -D playwright   (browsers preinstalled)
 import { chromium } from 'playwright';
 import { fileURLToPath } from 'url';
 import path from 'path';
@@ -8,8 +8,6 @@ import fs from 'fs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
-const tailwind = fs.readFileSync(
-  path.join(root, 'node_modules/@tailwindcss/browser/dist/index.global.js'), 'utf8');
 
 const fails = [];
 const ok = (cond, msg) => { if (cond) console.log(`  ✓ ${msg}`); else { console.log(`  ✗ ${msg}`); fails.push(msg); } };
@@ -21,12 +19,14 @@ const consoleErrors = [];
 page.on('pageerror', (e) => consoleErrors.push(`pageerror: ${e.message}`));
 page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(`console: ${m.text()}`); });
 
+// The page must be fully self-contained: no CDN, no sibling assets, nothing
+// fetched at runtime. Anything the browser asks for beyond index.html itself
+// is a bug that would break GitHub Pages / offline / file:// play.
 const externalHits = [];
 await page.route('**/*', async (route) => {
   const url = route.request().url();
-  if (url.startsWith('https://cdn.jsdelivr.net/npm/@tailwindcss/browser'))
-    return route.fulfill({ contentType: 'text/javascript', body: tailwind });
   if (url.startsWith('http')) { externalHits.push(url); return route.abort(); }
+  if (url.startsWith('file://') && !url.endsWith('/index.html')) externalHits.push(url);
   return route.fallback();
 });
 
@@ -35,8 +35,20 @@ await page.waitForTimeout(800);
 
 console.log('\n— load —');
 ok(consoleErrors.length === 0, `no console/page errors on load ${consoleErrors.length ? JSON.stringify(consoleErrors) : ''}`);
-ok(externalHits.length === 0, `no unexpected external requests ${externalHits.join(',')}`);
+ok(externalHits.length === 0, `page is self-contained: zero extra requests ${externalHits.join(',')}`);
 ok(await page.evaluate(() => !!window.Gobble?.Engine), 'window.Gobble API exported');
+ok(await page.evaluate(() => {
+  const d = document.createElement('div');
+  d.className = 'px-2.5 rounded-lg';
+  document.body.appendChild(d);
+  const cs = getComputedStyle(d);
+  const pad = cs.paddingLeft, radius = cs.borderRadius;   // read before detaching
+  const bg = getComputedStyle(document.body).backgroundColor;
+  d.remove();
+  return pad === '10px' && radius === '8px' && bg !== 'rgba(0, 0, 0, 0)';
+}), 'compiled Tailwind is applied (utilities resolve, body is painted)');
+ok(!fs.readFileSync(path.join(root, 'index.html'), 'utf8').includes('cdn.jsdelivr.net'),
+  'no CDN reference left in index.html');
 
 console.log('\n— rules scenarios —');
 const sc = await page.evaluate(() => {

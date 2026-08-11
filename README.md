@@ -16,11 +16,29 @@ Victory Lap. Boosts resolve before stepping moves each slot. **Scoring is contin
 length 4 leaving snake-food beads behind. First to **30** ends it; highest total wins.
 Mirrors the physical prototype in `RULES.md`.
 
-## Run it
+## Play it
 
-Open **`index.html`** in any modern browser. That's the whole app — no build step, no
-server. (First load needs internet access for the Tailwind CDN; the game engine itself is
-fully local.)
+**<https://mbancha.github.io/Gobble/>** — nothing to install, nothing to clone.
+
+`index.html` is completely self-contained: styles, engine, artwork and sound all live in
+that one file, and it makes **zero network requests**. So it works just as well saved to
+your desktop and double-clicked, on a plane, or from a USB stick. Best on a laptop: the
+layout is a three-pane desktop app and gets cramped on a phone.
+
+### Print and play
+
+The tabletop version is in [`RULES.md`](RULES.md), and the printable PDFs sit in
+[`print/`](print/) (US Letter, borderless). Once Pages is live they download straight from
+the browser, e.g. `https://mbancha.github.io/Gobble/print/gobble-rulebook.pdf`.
+
+### Turning on GitHub Pages (one time)
+
+Repo **Settings → Pages → Build and deployment → Source: _Deploy from a branch_**, pick
+branch `claude/snake-game-prototype-80hmis` and folder `/ (root)`, then **Save**. The site
+builds in a minute or two and redeploys on every push. Because this repo is private,
+publishing a Pages site needs a paid plan (GitHub Pro or higher); on the free plan, make
+the repo public first — and note that a Pages site is publicly readable either way unless
+you're on Enterprise Cloud.
 
 ## What's inside
 
@@ -43,3 +61,17 @@ fully local.)
 Where the tabletop rules need a referee (simultaneous swaps, boost sub-steps, spawning
 onto food, etc.), the rulings are documented in the header comment of `index.html`.
 A console/test API is exposed as `window.Gobble` (`runBatch`, `Engine`, `Bot`, …).
+
+## Working on it
+
+```sh
+npm install        # playwright + the tailwind compiler (dev only; players need neither)
+npm run build:css  # recompile the inlined <style> block after changing any class
+npm test           # 36 checks in real Chromium: rules, invariants, balance, UI flow
+npm run print      # regenerate the PDFs in print/
+```
+
+`npm test` also fails if the inlined CSS is stale, so a new Tailwind class can't silently
+go unstyled. The PDF generators live in `print/generate.mjs` and `print/rulebook.mjs` and
+share the Special-card text in `print/specials.mjs`, so the cards and the rulebook can't
+drift apart.

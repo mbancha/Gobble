@@ -2,9 +2,13 @@
   "name": "gobble",
   "private": true,
   "type": "module",
-  "scripts": { "test": "node test/gobble.test.mjs" },
+  "scripts": {
+    "build:css": "node build/build-css.mjs",
+    "print": "node print/generate.mjs && node print/rulebook.mjs",
+    "test": "node build/build-css.mjs --check && node test/gobble.test.mjs"
+  },
   "devDependencies": {
-    "@tailwindcss/browser": "^4.0.0",
+    "@tailwindcss/cli": "^4.3.3",
     "playwright": "^1.48.0"
   }
 }
