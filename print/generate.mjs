@@ -275,11 +275,24 @@ const boostCard = () => `
   </div>`;
 
 function cardsHTML() {
-  let body = `<div class="grid">`;
-  for (const p of PLAYERS) { for (let i = 0; i < 6; i++) body += arrowCard(p); body += ownBoostCard(p); }
-  for (let i = 0; i < 20; i++) body += boostCard();
-  body += `</div>`;
-  return page('Gobble — Player Cards', cardCSS, body);
+  const css = cardCSS + `
+    .sheet { width:8.5in; height:11in; display:flex; align-items:center; justify-content:center;
+             overflow:hidden; break-after:page; }
+    .sheet:last-child { break-after:auto; }
+    .sheet .grid { justify-content:center; }
+  `;
+  const cards = [];
+  for (const p of PLAYERS) {
+    for (let i = 0; i < 6; i++) cards.push(arrowCard(p));
+    cards.push(ownBoostCard(p));
+  }
+  for (let i = 0; i < 20; i++) cards.push(boostCard());
+  const cardsPerSheet = 30; // five columns by six rows on US Letter
+  let body = '';
+  for (let i = 0; i < cards.length; i += cardsPerSheet) {
+    body += `<div class="sheet"><div class="grid">${cards.slice(i, i + cardsPerSheet).join('')}</div></div>`;
+  }
+  return page('Gobble — Player Cards', css, body);
 }
 function cardUpdateHTML() {
   const body = `<div class="grid">${PLAYERS.map(ownBoostCard).join('')}</div>`;
@@ -480,7 +493,10 @@ const jobs = [
   { name: 'gobble-player-boards.pdf', html: playerBoardsHTML() },
   { name: 'gobble-score-track.pdf', html: scoreHTML() },
 ];
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const launchOptions = process.platform === 'win32'
+  ? { channel: 'chrome' }
+  : { executablePath: '/opt/pw-browsers/chromium' };
+const browser = await chromium.launch(launchOptions);
 const pg = await browser.newPage();
 const only = process.argv[3];                          // optional: render just one file
 for (const j of jobs) {
