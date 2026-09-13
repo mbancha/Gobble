@@ -12,7 +12,7 @@ const root = path.resolve(here, '..');
 const fails = [];
 const ok = (cond, msg) => { if (cond) console.log(`  ✓ ${msg}`); else { console.log(`  ✗ ${msg}`); fails.push(msg); } };
 
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const browser = await chromium.launch({ ...(process.env.CHROMIUM_PATH ? {executablePath: process.env.CHROMIUM_PATH} : process.platform === 'win32' ? {channel: 'chrome'} : {}) });
 const page = await browser.newPage({ viewport: { width: 1600, height: 950 } });
 
 const consoleErrors = [];
@@ -83,13 +83,13 @@ const sc = await page.evaluate(() => {
     const e = mk();
     const A = e.players[0];
     put(A, [{ x: 5, y: 2 }, { x: 4, y: 2 }, { x: 3, y: 2 }, { x: 3, y: 2 }], 'right');
-    e.spots.set(K(6, 2), { kind: 'special', value: 1 });
+    e.food.set(K(6, 2), { kind: 'special', value: 2 });
     A.commands = [{ dir: 'right', boost: false }];
     run(e);
     out.spLen = A.body.length;                   // unchanged
     out.spHand = A.specials.length;              // drew 1 card
     out.spDeck = e.specialDeck.length;           // 18 − 1
-    out.spStays = e.spots.has(K(6, 2));
+    out.spStays = e.food.has(K(6, 2));
   }
   // 3) continuous scoring: +1 per segment, +2 per food at max, dying adds nothing
   {
@@ -112,19 +112,19 @@ const sc = await page.evaluate(() => {
   {
     const e = mk({ startingLength: 4 });
     const A = e.players[0];
-    put(A, [{ x: 2, y: 2 }, { x: 1, y: 2 }, { x: 0, y: 2 }, { x: 0, y: 2 }], 'right');
-    for (let i = 3; i <= 9; i++) e.spots.set(K(i, 2), { kind: 'food', value: 1 });
+    put(A, [{ x: 1, y: 2 }, { x: 0, y: 2 }, { x: 0, y: 3 }, { x: 0, y: 4 }], 'right');
+    for (let i = 2; i <= 7; i++) e.spots.set(K(i, 2), { kind: 'food', value: 1 });
     A.commands = Array.from({ length: 6 }, () => ({ dir: 'right', boost: false }));
     run(e, 6);
     out.msLen = A.body.length;                   // 4 + 6 = 10
     out.msBoosts = A.boosts;                     // milestones at lengths 7 and 10
   }
-  // 5) placement: 4 cells, corner rule, spots coverable, pickups block
+  // 5) placement: configured 4 cells, no corner requirement, spots coverable, pickups block
   {
-    const e = mk();
+    const e = mk({startingLength: 4});
     out.plFour = e.spawnFootprint() === 4;
     out.plCorner = e.validChain([{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }]);
-    out.plInterior = !e.validChain([{ x: 1, y: 2 }, { x: 2, y: 2 }, { x: 3, y: 2 }, { x: 4, y: 2 }]);
+    out.plInterior = e.validChain([{ x: 1, y: 2 }, { x: 2, y: 2 }, { x: 3, y: 2 }, { x: 4, y: 2 }]);
     out.plBent = e.validChain([{ x: 5, y: 0 }, { x: 5, y: 1 }, { x: 4, y: 1 }, { x: 3, y: 1 }]);
     e.spots.set(K(1, 0), { kind: 'food', value: 1 });
     out.plOverSpot = e.validChain([{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }]);
@@ -141,10 +141,10 @@ const sc = await page.evaluate(() => {
     e3.setup();
     out.geoWH = `${e3.W}x${e3.H}`;
     out.geoCells = e3.valid.size;
-    out.geoHole = !e3.inBounds(7, 7);
+    out.geoHole = e3.inBounds(7, 7);
     out.geoCorners = e3.corners.size;
     out.geoFood = [...e3.spots.values()].filter((f) => f.kind === 'food').length;
-    out.geoSpecial = [...e3.spots.values()].filter((f) => f.kind === 'special').length;
+    out.geoSpecial = [...e3.food.values()].filter((f) => f.kind === 'special').length;
   }
   // 7) boosts resolve before steppers, so a booster claims a contested cell
   {
@@ -162,7 +162,7 @@ const sc = await page.evaluate(() => {
   {
     const e = mk({ commandSlots: 2 });
     const A = e.players[0];
-    put(A, [{ x: 1, y: 1 }, { x: 0, y: 1 }, { x: 0, y: 2 }], 'right');
+    put(A, [{ x: 0, y: 1 }, { x: 0, y: 2 }, { x: 0, y: 3 }], 'right');
     A.commands = [{ dir: 'right', boost: true }, { dir: 'right', boost: true }];
     e.startRound(); run(e, 2);
     out.fbX = A.body[0].x;                       // 1 + 3 + 1
@@ -192,7 +192,7 @@ const sc = await page.evaluate(() => {
     A.specials = ['careful-slither'];
     e.playSpecial(A, 'careful-slither');
     A.commands = [{ dir: 'right', boost: true }];  // 3 cells right would hit the wall at x=12? no: 8→11 ok; use wall
-    put(A, [{ x: 9, y: 1 }, { x: 9, y: 2 }, { x: 9, y: 3 }, { x: 9, y: 4 }], 'up');
+    put(A, [{ x: 5, y: 1 }, { x: 5, y: 4 }, { x: 5, y: 3 }, { x: 5, y: 2 }], 'up');
     run(e);
     out.carefulX = A.body[0].x;                   // 9→11 then stops: 3rd cell is the wall
     out.carefulAlive = A.alive;
@@ -202,7 +202,7 @@ const sc = await page.evaluate(() => {
     const e = mk({ commandSlots: 1 });
     const A = e.players[0], B = e.players[1];
     put(A, [{ x: 4, y: 2 }, { x: 3, y: 2 }, { x: 2, y: 2 }, { x: 1, y: 2 }], 'right');
-    put(B, [{ x: 6, y: 2 }, { x: 7, y: 2 }, { x: 8, y: 2 }, { x: 9, y: 2 }], 'left');
+    put(B, [{ x: 6, y: 2 }, { x: 7, y: 2 }, { x: 7, y: 3 }, { x: 7, y: 4 }], 'left');
     A.specials = ['star-power']; e.playSpecial(A, 'star-power');
     A.commands = [{ dir: 'right', boost: false }];
     B.commands = [{ dir: 'left', boost: false }];
@@ -214,7 +214,7 @@ const sc = await page.evaluate(() => {
     const e = mk({ commandSlots: 1 });
     const A = e.players[0], B = e.players[1];
     put(A, [{ x: 4, y: 2 }, { x: 3, y: 2 }, { x: 2, y: 2 }, { x: 1, y: 2 }], 'right');
-    put(B, [{ x: 6, y: 2 }, { x: 7, y: 2 }, { x: 8, y: 2 }, { x: 9, y: 2 }], 'left');
+    put(B, [{ x: 6, y: 2 }, { x: 7, y: 2 }, { x: 7, y: 3 }, { x: 7, y: 4 }], 'left');
     A.specials = ['star-power']; e.playSpecial(A, 'star-power');
     B.specials = ['star-power']; e.playSpecial(B, 'star-power');
     A.commands = [{ dir: 'right', boost: false }];
@@ -270,9 +270,6 @@ const sc = await page.evaluate(() => {
   }
   // 9) the player board's ten spaces
   {
-    const t = makeConfig().lengthScoreTable;
-    const at = (len) => { let p = 0; for (const r of t) if (len >= r.min) p = r.pts; return p; };
-    out.ladder = [at(4), at(5), at(6), at(9), at(13), at(14)].join(',');
     out.target = makeConfig().pointsToWin;
     out.panic = makeConfig().panicSeconds;
     out.start = makeConfig().startingLength;
@@ -281,27 +278,26 @@ const sc = await page.evaluate(() => {
 });
 ok(sc.growLen === 6 && sc.growStack && sc.growSpot && sc.growScore === 2,
    `food: +2 growth, spot persists, scores 2 as it grows (len ${sc.growLen}, score ${sc.growScore})`);
-ok(sc.spLen === 4 && sc.spHand === 1 && sc.spDeck === 17 && sc.spStays,
-   `special space: draws a Special card, no growth, never depletes (hand ${sc.spHand}, deck ${sc.spDeck})`);
+ok(sc.spLen === 6 && sc.spHand === 1 && sc.spDeck === 17 && !sc.spStays,
+   `special food: grows 2, draws a card, is consumed (hand ${sc.spHand}, deck ${sc.spDeck})`);
 ok(sc.contGrow === 1 && sc.contMax === 3 && sc.contDeath === 0,
    `continuous scoring: +1 per segment, +2 per food at max (${sc.contGrow}→${sc.contMax}), dying adds ${sc.contDeath}`);
 ok(sc.msLen === 10 && sc.msBoosts === 2,
    `milestones at the 3rd and 6th growth step gave ${sc.msBoosts} boost tiles by length ${sc.msLen}`);
 ok(sc.plFour && sc.plCorner && sc.plInterior && sc.plBent && sc.plOverSpot && sc.plBlocked && sc.plGap && sc.plSmart,
-   'placement: 4 cells, corner rule, spots coverable, snake food blocks, smart placement legal');
-ok(sc.geoWH === '8x8' && sc.geoCells === 48 && sc.geoHole && sc.geoCorners === 12 && sc.geoFood === 15 && sc.geoSpecial === 2,
-   `geometry: 3 players → L (${sc.geoWH}, ${sc.geoCells} cells, ${sc.geoFood} food, ${sc.geoSpecial} special)`);
+   'placement: configured 4 cells, no corner requirement, spots coverable, snake food blocks, smart placement legal');
+ok(sc.geoWH === '8x8' && sc.geoCells === 64 && sc.geoHole && sc.geoCorners === 4 && sc.geoFood === 10 && sc.geoSpecial === 1,
+   `geometry: 3 players → full 8x8 (${sc.geoWH}, ${sc.geoCells} cells, ${sc.geoFood} food, ${sc.geoSpecial} special)`);
 ok(sc.bpBooster && sc.bpStepper, 'boost priority: the booster claims the contested cell, the stepper dies');
-ok(sc.fbX === 5 && sc.fbX2 === 8, `free boost: 1/round, extras downgrade, refreshes (x=${sc.fbX}→${sc.fbX2})`);
+ok(sc.fbX === 4 && sc.fbX2 === 7, `free boost: 1/round, extras downgrade, refreshes (x=${sc.fbX}→${sc.fbX2})`);
 ok(sc.revBank === 4 && sc.vroomX === 4, `Rev Up banks 4 tiles; Vroom Vroom boost covers 4 cells (x=${sc.vroomX})`);
-ok(sc.carefulX === 11 && sc.carefulAlive, `Careful Slither stops the boost at 2 cells instead of hitting the wall (x=${sc.carefulX})`);
+ok(sc.carefulX === 7 && sc.carefulAlive, `Careful Slither stops the boost at 2 cells instead of hitting the wall (x=${sc.carefulX})`);
 ok(sc.starA && !sc.starB && sc.starAx === 5 && sc.star2, 'Star Power: lone holder survives the head-on; mutual holders both die');
 ok(sc.bounceAlive && sc.bounceHead === '3,2' && sc.bounceFacing === 'right', `Bounce: head lands on the tail and lives (${sc.bounceHead} facing ${sc.bounceFacing})`);
 ok(sc.flipHead === '3,2' && sc.flipFacing === 'right' && sc.vlGain === 4, `Flip Flop reverses; Victory Lap pays +${sc.vlGain}`);
 ok(sc.whoopsAlive && sc.whoopsUsed && sc.whoopsDiscard, 'Whoopsie auto-rotates a fatal tile and is spent');
 ok(sc.recycled, 'the Special deck reshuffles its discards when empty');
-ok(sc.ladder === '0,1,2,5,9,10', `ladder of ten spaces: got ${sc.ladder}`);
-ok(sc.target === 30 && sc.panic === 10 && sc.start === 4,
+ok(sc.target === 30 && sc.panic === 15 && sc.start === 3,
    `defaults: first to ${sc.target}, ${sc.panic}s timer, start length ${sc.start}`);
 
 console.log('\n— invariants over instrumented games —');
@@ -310,7 +306,7 @@ const inv = await page.evaluate(() => {
   const problems = [];
   const mkRng = (s) => { let a = s; return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
   let games = 0, substeps = 0;
-  for (const cfg of [makeConfig(), makeConfig({ tileSize: 3, playerCount: 8 }), makeConfig({ tileSize: 6, playerCount: 2, pointsToWin: 15 })]) {
+  for (const cfg of [makeConfig(), makeConfig({ playerCount: 6 }), makeConfig({ tileSize: 6, playerCount: 2, pointsToWin: 15 })]) {
     for (let seed = 0; seed < 12; seed++) {
       const e = new Engine(cfg, Array.from({ length: cfg.playerCount }, (_, i) => ({ name: 'P' + i, isBot: true })), mkRng(seed + 1));
       e.setup(); games++;
@@ -327,9 +323,9 @@ const inv = await page.evaluate(() => {
           }
         }
         const food = [...e.spots.values()].filter((f) => f.kind === 'food').length;
-        if (food !== e.players.length * Math.min(cfg.foodSpotsPerTile, cfg.tileSize ** 2))
+        if (food !== 10)
           problems.push(`${where}: printed food changed`);
-        for (const f of e.food.values()) if (f.kind !== 'bounty') problems.push(`${where}: stray pickup`);
+        for (const f of e.food.values()) if (!['bounty','special'].includes(f.kind)) problems.push(`${where}: stray pickup`);
         if (e.players.some((p) => p.score < 0)) problems.push(`${where}: negative score`);
       };
       let guard = 0;

@@ -8,126 +8,11 @@
 <title>Gobble — Simultaneous Snake Sandbox</title>
 <!-- inline favicon: keeps the page a single file with no /favicon.ico round-trip -->
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23020617'/%3E%3Cpath d='M7 21h7v-7h7v-4' fill='none' stroke='%2334d399' stroke-width='5' stroke-linecap='square'/%3E%3Ccircle cx='21' cy='8' r='3' fill='%23fb923c'/%3E%3C/svg%3E" />
-<!--
-  ═══════════════════════════════════════════════════════════════════════════
-  GOBBLE — a playable prototype + data-simulation sandbox for a
-  simultaneous-programming snake board game.
-
-  HOW TO RUN
-    Play it online: https://mbancha.github.io/Gobble/
-    Or save this file anywhere and double-click it. Nothing else is needed:
-    the page is entirely self-contained (styles, engine, art, sound), makes
-    zero network requests, and runs offline from file:// just as happily as
-    from a web server. The Tailwind CSS below is compiled ahead of time by
-    build/build-css.mjs; re-run `npm run build:css` after changing any class.
-
-  WHAT'S INSIDE (single file, zero build step, vanilla JS)
-    §0  Utilities & seeded RNG
-    §1  Config schema + control panel builder
-    §2  Spawn-node distribution (farthest-point sampling)
-    §3  Game engine (pure & headless — no DOM references)
-    §4  Bot AI (self-preservation → token seeking → 25% boost)
-    §5  Headless game runner + batch aggregation
-    §6  Canvas renderer
-    §7  Live game controller (programming / panic timer / playback phases)
-    §8  Command strip UI
-    §9  Simulation dashboard
-    §10 Boot & wiring
-
-  RULES-EDGE-CASE RULINGS (where the tabletop spec needs a referee):
-    • "Gap space" — when a head slides forward, the vacated cell is immediately
-      re-filled by a tail/new piece, so it is NEVER enterable by another snake
-      on that same tick. Two snakes swapping head positions therefore both die.
-      (Implemented naturally: collisions are evaluated against pre-slide bodies
-      minus cleared tails.)
-    • A stationary snake's head (e.g. during someone else's boost sub-step)
-      counts as a body obstacle — "head-to-head" requires BOTH heads to enter
-      the same cell on the same sub-step.
-    • BOOST slides resolve FIRST: boosting snakes run their full slide
-      (cell-by-cell sub-steps, simultaneous among boosters), THEN every
-      arrow-mover steps once, together. A booster claims a contested square
-      first — an arrow snake arriving later dies against its side. Mutual
-      death requires entering the same square on the same sub-step.
-    • A boost slot is paid at execution time — free per-round boost first,
-      then banked cards. Banked cards persist through death.
-    • A command strip needs a MINIMUM of 2 moves but may lock in fewer than
-      the max; unfilled slots become "stay" commands (dir: null) and the
-      snake simply holds its cell that tick (still a solid obstacle).
-    • A dead snake's HEAD token exits the board, and only every OTHER body
-      piece (starting right behind the head) flips into bounty food — half
-      the chips, half the physical upkeep. The skipped pieces and any tail
-      piece already "in hand" (cleared this sub-step) exit with the player.
-    • THE BOARD is one tileSize×tileSize mini-board per player, tiled as
-      close to an even square as possible (3 players → an L; 5 → a P; …).
-      Cells outside the placed mini-boards are walls.
-    • PRINTED FOOD: every mini-board carries its OWN randomized food layout,
-      chosen for rotational asymmetry (turning a board changes play) and
-      spread. All printed spots are plain +1 food by default — ×2 food comes
-      only from snake food. Spots NEVER deplete: eating doesn't remove
-      them, and a snake covering one just blocks it until the cell frees up.
-      There is no end-of-round token upkeep at all.
-    • ONE-SHOT PICKUPS: N−1 ×2-energy tokens (draw 2 boost cards) scatter on
-      random non-spot cells at setup, and BOUNTY chips (grow 2, no energy)
-      appear on deaths. Both leave the game once eaten; a pickup sitting on
-      a food spot covers it. Food and bounty grant growth only — boost cards
-      come solely from your free per-round boost and ×2-energy tokens.
-    • BOOST TILES: a slot holds one tile — movement (1 space) or boost
-      (boostDistance spaces), each pointing a direction. Every player owns
-      freeBoostsPerRound personal boost tile(s) that refresh each round;
-      extra boosts spend SPARE tiles from milestones and Rev Up (cap
-      maxBoostCards). An unaffordable boost downgrades to a movement tile.
-    • SPECIAL CARDS: crossing a printed swirl draws from an 18-card deck
-      (9 effects × 2; discards reshuffle). All nine effects are implemented:
-      Rev Up (+4 spare boosts) and Flip Flop (reverse the snake) resolve on
-      play; Vroom Vroom (+1 boost distance), Nom Nom (beads grow +1),
-      Bounce (a crash reverses you onto your tail instead, once), Star
-      Power (survive a same-cell head-on unless the other snake also has
-      it), Careful Slither (a boost may stop after 2 cells to dodge a
-      fatal 3rd) and Victory Lap (end of round: +length if alive) last one
-      round and expire at startRound. Whoopsie is automatic: it rotates a
-      movement tile that is about to crash. Bots play Specials with simple
-      heuristics; simultaneous plays resolve in seat order (the physical
-      "player order from the last timer flip").
-    • Respawn placement: a returning snake is placed on ANY 3 contiguous
-      cells free of snakes and pickups — bends allowed — and at least one
-      cell must TOUCH A CORNER of some mini-board — unless no corner
-      placement exists at all, in which case any legal spot is allowed and
-      bots pick the one closest to a corner. Printed food spots may be
-      covered freely: a placement never eats what it covers. The head points
-      away from its neck (facing derived, not chosen). Humans click head →
-      middle → tail (arrow keys extend, Backspace undoes); bots pick the
-      legal shape with the most open space around the head (flood fill) plus
-      a mild pull toward food. If startingLength > 3 the extra pieces stack
-      on the tail cell and un-stack as the snake moves. Dead players place
-      in random order each round; a fully jammed board means sitting the
-      round out.
-    • A ×2 food grows TWO segments — the second piece stacks behind the head
-      on the gap cell, just like the first — and still pays +1 energy.
-    • SCORING IS CONTINUOUS: every segment your snake grows scores 1 point on
-      the spot (the ten spaces on the player board, worth 1…10). At max length
-      each food unit scores maxLengthFoodBonus instead. Dying neither adds nor
-      removes points — you already have them — and there is no end-of-game
-      cash-out. Physically you can tally as you eat, or just read your length
-      off the player board when you die.
-    • SPECIAL SPACES (the printed swirls) let a physical player draw a Special
-      card. The sandbox does not simulate the nine Special effects; it models
-      a swirl as a single boost tile so movement and scoring stay comparable.
-    • Snake growth is capped by maxSnakeLength — the game does NOT end there.
-      Every food unit a capped snake can't fit converts on the spot into
-      maxLengthFoodBonus points (a +2 food at the cap = +2×bonus). Staying
-      maxed and eating is pure profit, so the dominant line is grow to max,
-      stay alive, keep eating — resetting yourself throws that engine away.
-    • Reaching pointsToWin ends the game instantly — then every LIVING snake
-      banks its current length through the score table (the final cash-out),
-      and TOTALS decide the winner, so the trigger player doesn't always win.
-      The same cash-out applies when the maxRounds sandbox guard fires.
-    • maxRounds is a sandbox guard: if no one reaches pointsToWin in time the
-      highest total after cash-out wins (ties broken randomly).
-  ═══════════════════════════════════════════════════════════════════════════
--->
+<!-- Self-contained Gobble prototype. Current rules: RULES.md.
+     Board coordinates: print/board.json. Run npm test after engine changes. -->
 <!-- tailwind:start (generated by build/build-css.mjs — do not edit by hand) -->
 <style>/*! tailwindcss v4.3.3 | MIT License | https://tailwindcss.com */
-@layer properties{@supports (((-webkit-hyphens:none)) and (not (margin-trim:inline))) or ((-moz-orient:inline) and (not (color:rgb(from red r g b)))){*,:before,:after,::backdrop{--tw-rotate-x:initial;--tw-rotate-y:initial;--tw-rotate-z:initial;--tw-skew-x:initial;--tw-skew-y:initial;--tw-space-y-reverse:0;--tw-border-style:solid;--tw-leading:initial;--tw-font-weight:initial;--tw-tracking:initial;--tw-ordinal:initial;--tw-slashed-zero:initial;--tw-numeric-figure:initial;--tw-numeric-spacing:initial;--tw-numeric-fraction:initial;--tw-shadow:0 0 #0000;--tw-shadow-color:initial;--tw-shadow-alpha:100%;--tw-inset-shadow:0 0 #0000;--tw-inset-shadow-color:initial;--tw-inset-shadow-alpha:100%;--tw-ring-color:initial;--tw-ring-shadow:0 0 #0000;--tw-inset-ring-color:initial;--tw-inset-ring-shadow:0 0 #0000;--tw-ring-inset:initial;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-offset-shadow:0 0 #0000;--tw-blur:initial;--tw-brightness:initial;--tw-contrast:initial;--tw-grayscale:initial;--tw-hue-rotate:initial;--tw-invert:initial;--tw-opacity:initial;--tw-saturate:initial;--tw-sepia:initial;--tw-drop-shadow:initial;--tw-drop-shadow-color:initial;--tw-drop-shadow-alpha:100%;--tw-drop-shadow-size:initial;--tw-backdrop-blur:initial;--tw-backdrop-brightness:initial;--tw-backdrop-contrast:initial;--tw-backdrop-grayscale:initial;--tw-backdrop-hue-rotate:initial;--tw-backdrop-invert:initial;--tw-backdrop-opacity:initial;--tw-backdrop-saturate:initial;--tw-backdrop-sepia:initial;--tw-scale-x:1;--tw-scale-y:1;--tw-scale-z:1}}}@layer theme{:root,:host{--font-sans:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";--font-mono:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;--color-amber-300:oklch(87.9% .169 91.605);--color-amber-400:oklch(82.8% .189 84.429);--color-amber-500:oklch(76.9% .188 70.08);--color-amber-950:oklch(27.9% .077 45.635);--color-emerald-300:oklch(84.5% .143 164.978);--color-emerald-400:oklch(76.5% .177 163.223);--color-emerald-500:oklch(69.6% .17 162.48);--color-sky-500:oklch(68.5% .169 237.323);--color-violet-200:oklch(89.4% .057 293.283);--color-violet-400:oklch(70.2% .183 293.541);--color-violet-500:oklch(60.6% .25 292.717);--color-violet-600:oklch(54.1% .281 293.009);--color-violet-700:oklch(49.1% .27 292.581);--color-violet-900:oklch(38% .189 293.745);--color-rose-400:oklch(71.2% .194 13.428);--color-slate-100:oklch(96.8% .007 247.896);--color-slate-200:oklch(92.9% .013 255.508);--color-slate-300:oklch(86.9% .022 252.894);--color-slate-400:oklch(70.4% .04 256.788);--color-slate-500:oklch(55.4% .046 257.417);--color-slate-600:oklch(44.6% .043 257.281);--color-slate-700:oklch(37.2% .044 257.287);--color-slate-800:oklch(27.9% .041 260.031);--color-slate-900:oklch(20.8% .042 265.755);--color-slate-950:oklch(12.9% .042 264.695);--color-black:#000;--color-white:#fff;--spacing:.25rem;--container-xs:20rem;--container-3xl:48rem;--container-5xl:64rem;--text-xs:.75rem;--text-xs--line-height:calc(1 / .75);--text-sm:.875rem;--text-sm--line-height:calc(1.25 / .875);--text-base:1rem;--text-base--line-height:calc(1.5 / 1);--text-lg:1.125rem;--text-lg--line-height:calc(1.75 / 1.125);--text-xl:1.25rem;--text-xl--line-height:calc(1.75 / 1.25);--text-2xl:1.5rem;--text-2xl--line-height:calc(2 / 1.5);--text-4xl:2.25rem;--text-4xl--line-height:calc(2.5 / 2.25);--text-5xl:3rem;--text-5xl--line-height:1;--text-8xl:6rem;--text-8xl--line-height:1;--font-weight-normal:400;--font-weight-semibold:600;--font-weight-bold:700;--font-weight-black:900;--tracking-wider:.05em;--tracking-widest:.1em;--leading-tight:1.25;--leading-snug:1.375;--radius-sm:.25rem;--radius-md:.375rem;--radius-lg:.5rem;--radius-xl:.75rem;--radius-2xl:1rem;--blur-sm:8px;--default-transition-duration:.15s;--default-transition-timing-function:cubic-bezier(.4, 0, .2, 1);--default-font-family:var(--font-sans);--default-mono-font-family:var(--font-mono)}}@layer base{*,:after,:before,::backdrop{box-sizing:border-box;border:0 solid;margin:0;padding:0}::file-selector-button{box-sizing:border-box;border:0 solid;margin:0;padding:0}html,:host{-webkit-text-size-adjust:100%;tab-size:4;line-height:1.5;font-family:var(--default-font-family,-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji");font-feature-settings:var(--default-font-feature-settings,normal);font-variation-settings:var(--default-font-variation-settings,normal);-webkit-tap-highlight-color:transparent}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;-webkit-text-decoration:inherit;-webkit-text-decoration:inherit;-webkit-text-decoration:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,samp,pre{font-family:var(--default-mono-font-family,ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);font-feature-settings:var(--default-mono-font-feature-settings,normal);font-variation-settings:var(--default-mono-font-variation-settings,normal);font-size:1em}small{font-size:80%}sub,sup{vertical-align:baseline;font-size:75%;line-height:0;position:relative}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}:-moz-focusring:where(:not(iframe)){outline:auto}progress{vertical-align:baseline}summary{display:list-item}ol,ul,menu{list-style:none}img,svg,video,canvas,audio,iframe,embed,object{vertical-align:middle;display:block}img,video{max-width:100%;height:auto}button,input,select,optgroup,textarea{font:inherit;font-feature-settings:inherit;font-variation-settings:inherit;letter-spacing:inherit;color:inherit;opacity:1;background-color:#0000;border-radius:0}::file-selector-button{font:inherit;font-feature-settings:inherit;font-variation-settings:inherit;letter-spacing:inherit;color:inherit;opacity:1;background-color:#0000;border-radius:0}:where(select:is([multiple],[size])) optgroup{font-weight:bolder}:where(select:is([multiple],[size])) optgroup option{padding-inline-start:20px}::file-selector-button{margin-inline-end:4px}::placeholder{opacity:1}@supports (not ((-webkit-appearance:-apple-pay-button))) or (contain-intrinsic-size:1px){::placeholder{color:currentColor}@supports (color:color-mix(in lab, red, red)){::placeholder{color:color-mix(in oklab, currentcolor 50%, transparent)}}}textarea{resize:vertical}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-date-and-time-value{min-height:1lh;text-align:inherit}::-webkit-datetime-edit{display:inline-flex}::-webkit-datetime-edit-fields-wrapper{padding:0}::-webkit-datetime-edit{padding-block:0}::-webkit-datetime-edit-year-field{padding-block:0}::-webkit-datetime-edit-month-field{padding-block:0}::-webkit-datetime-edit-day-field{padding-block:0}::-webkit-datetime-edit-hour-field{padding-block:0}::-webkit-datetime-edit-minute-field{padding-block:0}::-webkit-datetime-edit-second-field{padding-block:0}::-webkit-datetime-edit-millisecond-field{padding-block:0}::-webkit-datetime-edit-meridiem-field{padding-block:0}::-webkit-calendar-picker-indicator{line-height:1}:-moz-ui-invalid{box-shadow:none}button,input:where([type=button],[type=reset],[type=submit]){appearance:button}::file-selector-button{appearance:button}::-webkit-inner-spin-button{height:auto}::-webkit-outer-spin-button{height:auto}[hidden]:where(:not([hidden=until-found])){display:none!important}}@layer components;@layer utilities{.pointer-events-none{pointer-events:none}.invisible{visibility:hidden}.visible{visibility:visible}.absolute{position:absolute}.relative{position:relative}.static{position:static}.inset-0{inset:0}.top-0\.5{top:calc(var(--spacing) * .5)}.left-0\.5{left:calc(var(--spacing) * .5)}.z-10{z-index:10}.z-20{z-index:20}.z-30{z-index:30}.container{width:100%}@media (min-width:40rem){.container{max-width:40rem}}@media (min-width:48rem){.container{max-width:48rem}}@media (min-width:64rem){.container{max-width:64rem}}@media (min-width:80rem){.container{max-width:80rem}}@media (min-width:96rem){.container{max-width:96rem}}.mx-auto{margin-inline:auto}.-mt-0\.5{margin-top:calc(var(--spacing) * -.5)}.-mt-2{margin-top:calc(var(--spacing) * -2)}.mt-0\.5{margin-top:calc(var(--spacing) * .5)}.mt-1{margin-top:var(--spacing)}.mt-2{margin-top:calc(var(--spacing) * 2)}.mt-3{margin-top:calc(var(--spacing) * 3)}.mb-2{margin-bottom:calc(var(--spacing) * 2)}.mb-3{margin-bottom:calc(var(--spacing) * 3)}.ml-2{margin-left:calc(var(--spacing) * 2)}.ml-auto{margin-left:auto}.block{display:block}.flex{display:flex}.grid{display:grid}.hidden{display:none}.inline{display:inline}.inline-block{display:inline-block}.table{display:table}.h-2{height:calc(var(--spacing) * 2)}.h-2\.5{height:calc(var(--spacing) * 2.5)}.h-3{height:calc(var(--spacing) * 3)}.h-4{height:calc(var(--spacing) * 4)}.h-5{height:calc(var(--spacing) * 5)}.h-7{height:calc(var(--spacing) * 7)}.h-8{height:calc(var(--spacing) * 8)}.h-9{height:calc(var(--spacing) * 9)}.h-12{height:calc(var(--spacing) * 12)}.h-\[18px\]{height:18px}.h-full{height:100%}.min-h-0{min-height:0}.min-h-\[7\.5rem\]{min-height:7.5rem}.w-1\.5{width:calc(var(--spacing) * 1.5)}.w-2\.5{width:calc(var(--spacing) * 2.5)}.w-3{width:calc(var(--spacing) * 3)}.w-4{width:calc(var(--spacing) * 4)}.w-7{width:calc(var(--spacing) * 7)}.w-8{width:calc(var(--spacing) * 8)}.w-9{width:calc(var(--spacing) * 9)}.w-12{width:calc(var(--spacing) * 12)}.w-14{width:calc(var(--spacing) * 14)}.w-16{width:calc(var(--spacing) * 16)}.w-20{width:calc(var(--spacing) * 20)}.w-24{width:calc(var(--spacing) * 24)}.w-28{width:calc(var(--spacing) * 28)}.w-64{width:calc(var(--spacing) * 64)}.w-72{width:calc(var(--spacing) * 72)}.w-\[4\.5rem\]{width:4.5rem}.w-\[21rem\]{width:21rem}.w-\[26rem\]{width:26rem}.w-fit{width:fit-content}.max-w-3xl{max-width:var(--container-3xl)}.max-w-5xl{max-width:var(--container-5xl)}.max-w-\[92\%\]{max-width:92%}.max-w-xs{max-width:var(--container-xs)}.min-w-0{min-width:0}.min-w-\[10rem\]{min-width:10rem}.flex-1{flex:1}.shrink-0{flex-shrink:0}.grow{flex-grow:1}.transform{transform:var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,)}.cursor-default{cursor:default}.cursor-not-allowed{cursor:not-allowed}.cursor-pointer{cursor:pointer}.grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.flex-col{flex-direction:column}.flex-wrap{flex-wrap:wrap}.items-baseline{align-items:baseline}.items-center{align-items:center}.items-start{align-items:flex-start}.justify-center{justify-content:center}.gap-1{gap:var(--spacing)}.gap-1\.5{gap:calc(var(--spacing) * 1.5)}.gap-2{gap:calc(var(--spacing) * 2)}.gap-3{gap:calc(var(--spacing) * 3)}.gap-4{gap:calc(var(--spacing) * 4)}.gap-px{gap:1px}:where(.space-y-1>:not(:last-child)){--tw-space-y-reverse:0;margin-block-start:calc(var(--spacing) * var(--tw-space-y-reverse));margin-block-end:calc(var(--spacing) * calc(1 - var(--tw-space-y-reverse)))}:where(.space-y-1\.5>:not(:last-child)){--tw-space-y-reverse:0;margin-block-start:calc(calc(var(--spacing) * 1.5) * var(--tw-space-y-reverse));margin-block-end:calc(calc(var(--spacing) * 1.5) * calc(1 - var(--tw-space-y-reverse)))}:where(.space-y-2>:not(:last-child)){--tw-space-y-reverse:0;margin-block-start:calc(calc(var(--spacing) * 2) * var(--tw-space-y-reverse));margin-block-end:calc(calc(var(--spacing) * 2) * calc(1 - var(--tw-space-y-reverse)))}:where(.space-y-3>:not(:last-child)){--tw-space-y-reverse:0;margin-block-start:calc(calc(var(--spacing) * 3) * var(--tw-space-y-reverse));margin-block-end:calc(calc(var(--spacing) * 3) * calc(1 - var(--tw-space-y-reverse)))}:where(.space-y-4>:not(:last-child)){--tw-space-y-reverse:0;margin-block-start:calc(calc(var(--spacing) * 4) * var(--tw-space-y-reverse));margin-block-end:calc(calc(var(--spacing) * 4) * calc(1 - var(--tw-space-y-reverse)))}:where(.space-y-5>:not(:last-child)){--tw-space-y-reverse:0;margin-block-start:calc(calc(var(--spacing) * 5) * var(--tw-space-y-reverse));margin-block-end:calc(calc(var(--spacing) * 5) * calc(1 - var(--tw-space-y-reverse)))}:where(.space-y-\[6px\]>:not(:last-child)){--tw-space-y-reverse:0;margin-block-start:calc(6px * var(--tw-space-y-reverse));margin-block-end:calc(6px * calc(1 - var(--tw-space-y-reverse)))}.truncate{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.overflow-hidden{overflow:hidden}.overflow-y-auto{overflow-y:auto}.rounded{border-radius:.25rem}.rounded-2xl{border-radius:var(--radius-2xl)}.rounded-full{border-radius:3.40282e38px}.rounded-lg{border-radius:var(--radius-lg)}.rounded-md{border-radius:var(--radius-md)}.rounded-sm{border-radius:var(--radius-sm)}.rounded-xl{border-radius:var(--radius-xl)}.rounded-r{border-top-right-radius:.25rem;border-bottom-right-radius:.25rem}.border{border-style:var(--tw-border-style);border-width:1px}.border-2{border-style:var(--tw-border-style);border-width:2px}.border-t{border-top-style:var(--tw-border-style);border-top-width:1px}.border-r{border-right-style:var(--tw-border-style);border-right-width:1px}.border-b{border-bottom-style:var(--tw-border-style);border-bottom-width:1px}.border-l{border-left-style:var(--tw-border-style);border-left-width:1px}.border-l-4{border-left-style:var(--tw-border-style);border-left-width:4px}.border-amber-300{border-color:var(--color-amber-300)}.border-amber-500{border-color:var(--color-amber-500)}.border-emerald-400{border-color:var(--color-emerald-400)}.border-emerald-500\/40{border-color:#00bb7f66}@supports (color:color-mix(in lab, red, red)){.border-emerald-500\/40{border-color:color-mix(in oklab, var(--color-emerald-500) 40%, transparent)}}.border-slate-700{border-color:var(--color-slate-700)}.border-slate-800{border-color:var(--color-slate-800)}.border-slate-800\/70{border-color:#1d293db3}@supports (color:color-mix(in lab, red, red)){.border-slate-800\/70{border-color:color-mix(in oklab, var(--color-slate-800) 70%, transparent)}}.border-transparent{border-color:#0000}.border-violet-600{border-color:var(--color-violet-600)}.bg-amber-400{background-color:var(--color-amber-400)}.bg-amber-500{background-color:var(--color-amber-500)}.bg-amber-950\/70{background-color:#461901b3}@supports (color:color-mix(in lab, red, red)){.bg-amber-950\/70{background-color:color-mix(in oklab, var(--color-amber-950) 70%, transparent)}}.bg-amber-950\/80{background-color:#461901cc}@supports (color:color-mix(in lab, red, red)){.bg-amber-950\/80{background-color:color-mix(in oklab, var(--color-amber-950) 80%, transparent)}}.bg-emerald-500{background-color:var(--color-emerald-500)}.bg-emerald-500\/10{background-color:#00bb7f1a}@supports (color:color-mix(in lab, red, red)){.bg-emerald-500\/10{background-color:color-mix(in oklab, var(--color-emerald-500) 10%, transparent)}}.bg-sky-500{background-color:var(--color-sky-500)}.bg-slate-600{background-color:var(--color-slate-600)}.bg-slate-700{background-color:var(--color-slate-700)}.bg-slate-800{background-color:var(--color-slate-800)}.bg-slate-800\/60{background-color:#1d293d99}@supports (color:color-mix(in lab, red, red)){.bg-slate-800\/60{background-color:color-mix(in oklab, var(--color-slate-800) 60%, transparent)}}.bg-slate-800\/70{background-color:#1d293db3}@supports (color:color-mix(in lab, red, red)){.bg-slate-800\/70{background-color:color-mix(in oklab, var(--color-slate-800) 70%, transparent)}}.bg-slate-900{background-color:var(--color-slate-900)}.bg-slate-900\/40{background-color:#0f172b66}@supports (color:color-mix(in lab, red, red)){.bg-slate-900\/40{background-color:color-mix(in oklab, var(--color-slate-900) 40%, transparent)}}.bg-slate-900\/50{background-color:#0f172b80}@supports (color:color-mix(in lab, red, red)){.bg-slate-900\/50{background-color:color-mix(in oklab, var(--color-slate-900) 50%, transparent)}}.bg-slate-900\/60{background-color:#0f172b99}@supports (color:color-mix(in lab, red, red)){.bg-slate-900\/60{background-color:color-mix(in oklab, var(--color-slate-900) 60%, transparent)}}.bg-slate-950{background-color:var(--color-slate-950)}.bg-slate-950\/90{background-color:#020618e6}@supports (color:color-mix(in lab, red, red)){.bg-slate-950\/90{background-color:color-mix(in oklab, var(--color-slate-950) 90%, transparent)}}.bg-slate-950\/95{background-color:#020618f2}@supports (color:color-mix(in lab, red, red)){.bg-slate-950\/95{background-color:color-mix(in oklab, var(--color-slate-950) 95%, transparent)}}.bg-violet-400{background-color:var(--color-violet-400)}.bg-violet-500{background-color:var(--color-violet-500)}.bg-violet-900\/60{background-color:#4d179a99}@supports (color:color-mix(in lab, red, red)){.bg-violet-900\/60{background-color:color-mix(in oklab, var(--color-violet-900) 60%, transparent)}}.bg-white{background-color:var(--color-white)}.p-2\.5{padding:calc(var(--spacing) * 2.5)}.p-3{padding:calc(var(--spacing) * 3)}.p-3\.5{padding:calc(var(--spacing) * 3.5)}.p-4{padding:calc(var(--spacing) * 4)}.p-5{padding:calc(var(--spacing) * 5)}.p-6{padding:calc(var(--spacing) * 6)}.px-1\.5{padding-inline:calc(var(--spacing) * 1.5)}.px-2{padding-inline:calc(var(--spacing) * 2)}.px-2\.5{padding-inline:calc(var(--spacing) * 2.5)}.px-3{padding-inline:calc(var(--spacing) * 3)}.px-4{padding-inline:calc(var(--spacing) * 4)}.px-5{padding-inline:calc(var(--spacing) * 5)}.px-6{padding-inline:calc(var(--spacing) * 6)}.py-0\.5{padding-block:calc(var(--spacing) * .5)}.py-1{padding-block:var(--spacing)}.py-1\.5{padding-block:calc(var(--spacing) * 1.5)}.py-2{padding-block:calc(var(--spacing) * 2)}.py-2\.5{padding-block:calc(var(--spacing) * 2.5)}.pt-1{padding-top:var(--spacing)}.pl-2{padding-left:calc(var(--spacing) * 2)}.text-center{text-align:center}.text-right{text-align:right}.text-2xl{font-size:var(--text-2xl);line-height:var(--tw-leading,var(--text-2xl--line-height))}.text-4xl{font-size:var(--text-4xl);line-height:var(--tw-leading,var(--text-4xl--line-height))}.text-5xl{font-size:var(--text-5xl);line-height:var(--tw-leading,var(--text-5xl--line-height))}.text-8xl{font-size:var(--text-8xl);line-height:var(--tw-leading,var(--text-8xl--line-height))}.text-base{font-size:var(--text-base);line-height:var(--tw-leading,var(--text-base--line-height))}.text-lg{font-size:var(--text-lg);line-height:var(--tw-leading,var(--text-lg--line-height))}.text-sm{font-size:var(--text-sm);line-height:var(--tw-leading,var(--text-sm--line-height))}.text-xl{font-size:var(--text-xl);line-height:var(--tw-leading,var(--text-xl--line-height))}.text-xs{font-size:var(--text-xs);line-height:var(--tw-leading,var(--text-xs--line-height))}.text-\[10px\]{font-size:10px}.text-\[11px\]{font-size:11px}.leading-none{--tw-leading:1;line-height:1}.leading-snug{--tw-leading:var(--leading-snug);line-height:var(--leading-snug)}.leading-tight{--tw-leading:var(--leading-tight);line-height:var(--leading-tight)}.font-black{--tw-font-weight:var(--font-weight-black);font-weight:var(--font-weight-black)}.font-bold{--tw-font-weight:var(--font-weight-bold);font-weight:var(--font-weight-bold)}.font-normal{--tw-font-weight:var(--font-weight-normal);font-weight:var(--font-weight-normal)}.font-semibold{--tw-font-weight:var(--font-weight-semibold);font-weight:var(--font-weight-semibold)}.tracking-wider{--tw-tracking:var(--tracking-wider);letter-spacing:var(--tracking-wider)}.tracking-widest{--tw-tracking:var(--tracking-widest);letter-spacing:var(--tracking-widest)}.whitespace-nowrap{white-space:nowrap}.text-amber-300{color:var(--color-amber-300)}.text-amber-400{color:var(--color-amber-400)}.text-emerald-300{color:var(--color-emerald-300)}.text-emerald-400{color:var(--color-emerald-400)}.text-rose-400{color:var(--color-rose-400)}.text-slate-100{color:var(--color-slate-100)}.text-slate-200{color:var(--color-slate-200)}.text-slate-300{color:var(--color-slate-300)}.text-slate-400{color:var(--color-slate-400)}.text-slate-500{color:var(--color-slate-500)}.text-slate-600{color:var(--color-slate-600)}.text-slate-700{color:var(--color-slate-700)}.text-slate-950{color:var(--color-slate-950)}.text-violet-200{color:var(--color-violet-200)}.text-white{color:var(--color-white)}.normal-case{text-transform:none}.uppercase{text-transform:uppercase}.tabular-nums{--tw-numeric-spacing:tabular-nums;font-variant-numeric:var(--tw-ordinal,) var(--tw-slashed-zero,) var(--tw-numeric-figure,) var(--tw-numeric-spacing,) var(--tw-numeric-fraction,)}.opacity-25{opacity:.25}.opacity-50{opacity:.5}.shadow{--tw-shadow:0 1px 3px 0 var(--tw-shadow-color,#0000001a), 0 1px 2px -1px var(--tw-shadow-color,#0000001a);box-shadow:var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow)}.shadow-2xl{--tw-shadow:0 25px 50px -12px var(--tw-shadow-color,#00000040);box-shadow:var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow)}.ring,.ring-1{--tw-ring-shadow:var(--tw-ring-inset,) 0 0 0 calc(1px + var(--tw-ring-offset-width)) var(--tw-ring-color,currentcolor);box-shadow:var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow)}.shadow-black\/50{--tw-shadow-color:#00000080}@supports (color:color-mix(in lab, red, red)){.shadow-black\/50{--tw-shadow-color:color-mix(in oklab, color-mix(in oklab, var(--color-black) 50%, transparent) var(--tw-shadow-alpha), transparent)}}.ring-amber-500{--tw-ring-color:var(--color-amber-500)}.ring-emerald-400{--tw-ring-color:var(--color-emerald-400)}.drop-shadow-\[0_0_35px_rgba\(52\,211\,153\,0\.7\)\]{--tw-drop-shadow-size:drop-shadow(0 0 35px var(--tw-drop-shadow-color,#34d399b3));--tw-drop-shadow:var(--tw-drop-shadow-size);filter:var(--tw-blur,) var(--tw-brightness,) var(--tw-contrast,) var(--tw-grayscale,) var(--tw-hue-rotate,) var(--tw-invert,) var(--tw-saturate,) var(--tw-sepia,) var(--tw-drop-shadow,)}.filter{filter:var(--tw-blur,) var(--tw-brightness,) var(--tw-contrast,) var(--tw-grayscale,) var(--tw-hue-rotate,) var(--tw-invert,) var(--tw-saturate,) var(--tw-sepia,) var(--tw-drop-shadow,)}.backdrop-blur-sm{--tw-backdrop-blur:blur(var(--blur-sm));-webkit-backdrop-filter:var(--tw-backdrop-blur,) var(--tw-backdrop-brightness,) var(--tw-backdrop-contrast,) var(--tw-backdrop-grayscale,) var(--tw-backdrop-hue-rotate,) var(--tw-backdrop-invert,) var(--tw-backdrop-opacity,) var(--tw-backdrop-saturate,) var(--tw-backdrop-sepia,);backdrop-filter:var(--tw-backdrop-blur,) var(--tw-backdrop-brightness,) var(--tw-backdrop-contrast,) var(--tw-backdrop-grayscale,) var(--tw-backdrop-hue-rotate,) var(--tw-backdrop-invert,) var(--tw-backdrop-opacity,) var(--tw-backdrop-saturate,) var(--tw-backdrop-sepia,)}.transition{transition-property:color,background-color,border-color,outline-color,text-decoration-color,fill,stroke,--tw-gradient-from,--tw-gradient-via,--tw-gradient-to,opacity,box-shadow,transform,translate,scale,rotate,filter,-webkit-backdrop-filter,backdrop-filter,display,content-visibility,overlay,pointer-events;transition-timing-function:var(--tw-ease,var(--default-transition-timing-function));transition-duration:var(--tw-duration,var(--default-transition-duration))}.transition-colors{transition-property:color,background-color,border-color,outline-color,text-decoration-color,fill,stroke,--tw-gradient-from,--tw-gradient-via,--tw-gradient-to;transition-timing-function:var(--tw-ease,var(--default-transition-timing-function));transition-duration:var(--tw-duration,var(--default-transition-duration))}.transition-transform{transition-property:transform,translate,scale,rotate;transition-timing-function:var(--tw-ease,var(--default-transition-timing-function));transition-duration:var(--tw-duration,var(--default-transition-duration))}.select-none{-webkit-user-select:none;user-select:none}@media (hover:hover){.hover\:scale-110:hover{--tw-scale-x:110%;--tw-scale-y:110%;--tw-scale-z:110%;scale:var(--tw-scale-x) var(--tw-scale-y)}.hover\:bg-amber-400:hover{background-color:var(--color-amber-400)}.hover\:bg-emerald-400:hover{background-color:var(--color-emerald-400)}.hover\:bg-slate-600:hover{background-color:var(--color-slate-600)}.hover\:bg-slate-700:hover{background-color:var(--color-slate-700)}.hover\:bg-violet-700:hover{background-color:var(--color-violet-700)}.hover\:text-amber-300:hover{color:var(--color-amber-300)}.hover\:text-emerald-300:hover{color:var(--color-emerald-300)}.hover\:text-rose-400:hover{color:var(--color-rose-400)}}.focus\:border-emerald-500:focus{border-color:var(--color-emerald-500)}.focus\:outline-none:focus{--tw-outline-style:none;outline-style:none}@media (min-width:48rem){.md\:grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.md\:grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}}@media (min-width:80rem){.xl\:grid-cols-6{grid-template-columns:repeat(6,minmax(0,1fr))}}}@property --tw-rotate-x{syntax:"*";inherits:false}@property --tw-rotate-y{syntax:"*";inherits:false}@property --tw-rotate-z{syntax:"*";inherits:false}@property --tw-skew-x{syntax:"*";inherits:false}@property --tw-skew-y{syntax:"*";inherits:false}@property --tw-space-y-reverse{syntax:"*";inherits:false;initial-value:0}@property --tw-border-style{syntax:"*";inherits:false;initial-value:solid}@property --tw-leading{syntax:"*";inherits:false}@property --tw-font-weight{syntax:"*";inherits:false}@property --tw-tracking{syntax:"*";inherits:false}@property --tw-ordinal{syntax:"*";inherits:false}@property --tw-slashed-zero{syntax:"*";inherits:false}@property --tw-numeric-figure{syntax:"*";inherits:false}@property --tw-numeric-spacing{syntax:"*";inherits:false}@property --tw-numeric-fraction{syntax:"*";inherits:false}@property --tw-shadow{syntax:"*";inherits:false;initial-value:0 0 #0000}@property --tw-shadow-color{syntax:"*";inherits:false}@property --tw-shadow-alpha{syntax:"<percentage>";inherits:false;initial-value:100%}@property --tw-inset-shadow{syntax:"*";inherits:false;initial-value:0 0 #0000}@property --tw-inset-shadow-color{syntax:"*";inherits:false}@property --tw-inset-shadow-alpha{syntax:"<percentage>";inherits:false;initial-value:100%}@property --tw-ring-color{syntax:"*";inherits:false}@property --tw-ring-shadow{syntax:"*";inherits:false;initial-value:0 0 #0000}@property --tw-inset-ring-color{syntax:"*";inherits:false}@property --tw-inset-ring-shadow{syntax:"*";inherits:false;initial-value:0 0 #0000}@property --tw-ring-inset{syntax:"*";inherits:false}@property --tw-ring-offset-width{syntax:"<length>";inherits:false;initial-value:0}@property --tw-ring-offset-color{syntax:"*";inherits:false;initial-value:#fff}@property --tw-ring-offset-shadow{syntax:"*";inherits:false;initial-value:0 0 #0000}@property --tw-blur{syntax:"*";inherits:false}@property --tw-brightness{syntax:"*";inherits:false}@property --tw-contrast{syntax:"*";inherits:false}@property --tw-grayscale{syntax:"*";inherits:false}@property --tw-hue-rotate{syntax:"*";inherits:false}@property --tw-invert{syntax:"*";inherits:false}@property --tw-opacity{syntax:"*";inherits:false}@property --tw-saturate{syntax:"*";inherits:false}@property --tw-sepia{syntax:"*";inherits:false}@property --tw-drop-shadow{syntax:"*";inherits:false}@property --tw-drop-shadow-color{syntax:"*";inherits:false}@property --tw-drop-shadow-alpha{syntax:"<percentage>";inherits:false;initial-value:100%}@property --tw-drop-shadow-size{syntax:"*";inherits:false}@property --tw-backdrop-blur{syntax:"*";inherits:false}@property --tw-backdrop-brightness{syntax:"*";inherits:false}@property --tw-backdrop-contrast{syntax:"*";inherits:false}@property --tw-backdrop-grayscale{syntax:"*";inherits:false}@property --tw-backdrop-hue-rotate{syntax:"*";inherits:false}@property --tw-backdrop-invert{syntax:"*";inherits:false}@property --tw-backdrop-opacity{syntax:"*";inherits:false}@property --tw-backdrop-saturate{syntax:"*";inherits:false}@property --tw-backdrop-sepia{syntax:"*";inherits:false}@property --tw-scale-x{syntax:"*";inherits:false;initial-value:1}@property --tw-scale-y{syntax:"*";inherits:false;initial-value:1}@property --tw-scale-z{syntax:"*";inherits:false;initial-value:1}</style>
+@layer properties{@supports (((-webkit-hyphens:none)) and (not (margin-trim:inline))) or ((-moz-orient:inline) and (not (color:rgb(from red r g b)))){*,:before,:after,::backdrop{--tw-rotate-x:initial;--tw-rotate-y:initial;--tw-rotate-z:initial;--tw-skew-x:initial;--tw-skew-y:initial;--tw-space-y-reverse:0;--tw-border-style:solid;--tw-leading:initial;--tw-font-weight:initial;--tw-tracking:initial;--tw-ordinal:initial;--tw-slashed-zero:initial;--tw-numeric-figure:initial;--tw-numeric-spacing:initial;--tw-numeric-fraction:initial;--tw-shadow:0 0 #0000;--tw-shadow-color:initial;--tw-shadow-alpha:100%;--tw-inset-shadow:0 0 #0000;--tw-inset-shadow-color:initial;--tw-inset-shadow-alpha:100%;--tw-ring-color:initial;--tw-ring-shadow:0 0 #0000;--tw-inset-ring-color:initial;--tw-inset-ring-shadow:0 0 #0000;--tw-ring-inset:initial;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-offset-shadow:0 0 #0000;--tw-blur:initial;--tw-brightness:initial;--tw-contrast:initial;--tw-grayscale:initial;--tw-hue-rotate:initial;--tw-invert:initial;--tw-opacity:initial;--tw-saturate:initial;--tw-sepia:initial;--tw-drop-shadow:initial;--tw-drop-shadow-color:initial;--tw-drop-shadow-alpha:100%;--tw-drop-shadow-size:initial;--tw-backdrop-blur:initial;--tw-backdrop-brightness:initial;--tw-backdrop-contrast:initial;--tw-backdrop-grayscale:initial;--tw-backdrop-hue-rotate:initial;--tw-backdrop-invert:initial;--tw-backdrop-opacity:initial;--tw-backdrop-saturate:initial;--tw-backdrop-sepia:initial;--tw-scale-x:1;--tw-scale-y:1;--tw-scale-z:1}}}@layer theme{:root,:host{--font-sans:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";--font-mono:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;--color-amber-300:oklch(87.9% .169 91.605);--color-amber-400:oklch(82.8% .189 84.429);--color-amber-500:oklch(76.9% .188 70.08);--color-amber-950:oklch(27.9% .077 45.635);--color-emerald-300:oklch(84.5% .143 164.978);--color-emerald-400:oklch(76.5% .177 163.223);--color-emerald-500:oklch(69.6% .17 162.48);--color-sky-500:oklch(68.5% .169 237.323);--color-violet-200:oklch(89.4% .057 293.283);--color-violet-400:oklch(70.2% .183 293.541);--color-violet-500:oklch(60.6% .25 292.717);--color-violet-600:oklch(54.1% .281 293.009);--color-violet-700:oklch(49.1% .27 292.581);--color-violet-900:oklch(38% .189 293.745);--color-rose-400:oklch(71.2% .194 13.428);--color-slate-100:oklch(96.8% .007 247.896);--color-slate-200:oklch(92.9% .013 255.508);--color-slate-300:oklch(86.9% .022 252.894);--color-slate-400:oklch(70.4% .04 256.788);--color-slate-500:oklch(55.4% .046 257.417);--color-slate-600:oklch(44.6% .043 257.281);--color-slate-700:oklch(37.2% .044 257.287);--color-slate-800:oklch(27.9% .041 260.031);--color-slate-900:oklch(20.8% .042 265.755);--color-slate-950:oklch(12.9% .042 264.695);--color-black:#000;--color-white:#fff;--spacing:.25rem;--container-xs:20rem;--container-3xl:48rem;--container-5xl:64rem;--text-xs:.75rem;--text-xs--line-height:calc(1 / .75);--text-sm:.875rem;--text-sm--line-height:calc(1.25 / .875);--text-base:1rem;--text-base--line-height:calc(1.5 / 1);--text-lg:1.125rem;--text-lg--line-height:calc(1.75 / 1.125);--text-xl:1.25rem;--text-xl--line-height:calc(1.75 / 1.25);--text-2xl:1.5rem;--text-2xl--line-height:calc(2 / 1.5);--text-4xl:2.25rem;--text-4xl--line-height:calc(2.5 / 2.25);--text-5xl:3rem;--text-5xl--line-height:1;--text-8xl:6rem;--text-8xl--line-height:1;--font-weight-normal:400;--font-weight-semibold:600;--font-weight-bold:700;--font-weight-black:900;--tracking-wider:.05em;--tracking-widest:.1em;--leading-tight:1.25;--leading-snug:1.375;--radius-sm:.25rem;--radius-md:.375rem;--radius-lg:.5rem;--radius-xl:.75rem;--radius-2xl:1rem;--blur-sm:8px;--default-transition-duration:.15s;--default-transition-timing-function:cubic-bezier(.4, 0, .2, 1);--default-font-family:var(--font-sans);--default-mono-font-family:var(--font-mono)}}@layer base{*,:after,:before,::backdrop{box-sizing:border-box;border:0 solid;margin:0;padding:0}::file-selector-button{box-sizing:border-box;border:0 solid;margin:0;padding:0}html,:host{-webkit-text-size-adjust:100%;tab-size:4;line-height:1.5;font-family:var(--default-font-family,-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji");font-feature-settings:var(--default-font-feature-settings,normal);font-variation-settings:var(--default-font-variation-settings,normal);-webkit-tap-highlight-color:transparent}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;-webkit-text-decoration:inherit;-webkit-text-decoration:inherit;-webkit-text-decoration:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,samp,pre{font-family:var(--default-mono-font-family,ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);font-feature-settings:var(--default-mono-font-feature-settings,normal);font-variation-settings:var(--default-mono-font-variation-settings,normal);font-size:1em}small{font-size:80%}sub,sup{vertical-align:baseline;font-size:75%;line-height:0;position:relative}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}:-moz-focusring:where(:not(iframe)){outline:auto}progress{vertical-align:baseline}summary{display:list-item}ol,ul,menu{list-style:none}img,svg,video,canvas,audio,iframe,embed,object{vertical-align:middle;display:block}img,video{max-width:100%;height:auto}button,input,select,optgroup,textarea{font:inherit;font-feature-settings:inherit;font-variation-settings:inherit;letter-spacing:inherit;color:inherit;opacity:1;background-color:#0000;border-radius:0}::file-selector-button{font:inherit;font-feature-settings:inherit;font-variation-settings:inherit;letter-spacing:inherit;color:inherit;opacity:1;background-color:#0000;border-radius:0}:where(select:is([multiple],[size])) optgroup{font-weight:bolder}:where(select:is([multiple],[size])) optgroup option{padding-inline-start:20px}::file-selector-button{margin-inline-end:4px}::placeholder{opacity:1}@supports (not ((-webkit-appearance:-apple-pay-button))) or (contain-intrinsic-size:1px){::placeholder{color:currentColor}@supports (color:color-mix(in lab, red, red)){::placeholder{color:color-mix(in oklab, currentcolor 50%, transparent)}}}textarea{resize:vertical}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-date-and-time-value{min-height:1lh;text-align:inherit}::-webkit-datetime-edit{display:inline-flex}::-webkit-datetime-edit-fields-wrapper{padding:0}::-webkit-datetime-edit{padding-block:0}::-webkit-datetime-edit-year-field{padding-block:0}::-webkit-datetime-edit-month-field{padding-block:0}::-webkit-datetime-edit-day-field{padding-block:0}::-webkit-datetime-edit-hour-field{padding-block:0}::-webkit-datetime-edit-minute-field{padding-block:0}::-webkit-datetime-edit-second-field{padding-block:0}::-webkit-datetime-edit-millisecond-field{padding-block:0}::-webkit-datetime-edit-meridiem-field{padding-block:0}::-webkit-calendar-picker-indicator{line-height:1}:-moz-ui-invalid{box-shadow:none}button,input:where([type=button],[type=reset],[type=submit]){appearance:button}::file-selector-button{appearance:button}::-webkit-inner-spin-button{height:auto}::-webkit-outer-spin-button{height:auto}[hidden]:where(:not([hidden=until-found])){display:none!important}}@layer components;@layer utilities{.pointer-events-none{pointer-events:none}.invisible{visibility:hidden}.visible{visibility:visible}.absolute{position:absolute}.fixed{position:fixed}.relative{position:relative}.inset-0{inset:0}.top-0\.5{top:calc(var(--spacing) * .5)}.left-0\.5{left:calc(var(--spacing) * .5)}.z-10{z-index:10}.z-20{z-index:20}.z-30{z-index:30}.container{width:100%}@media (min-width:40rem){.container{max-width:40rem}}@media (min-width:48rem){.container{max-width:48rem}}@media (min-width:64rem){.container{max-width:64rem}}@media (min-width:80rem){.container{max-width:80rem}}@media (min-width:96rem){.container{max-width:96rem}}.mx-auto{margin-inline:auto}.-mt-0\.5{margin-top:calc(var(--spacing) * -.5)}.-mt-2{margin-top:calc(var(--spacing) * -2)}.mt-0\.5{margin-top:calc(var(--spacing) * .5)}.mt-1{margin-top:var(--spacing)}.mt-2{margin-top:calc(var(--spacing) * 2)}.mt-3{margin-top:calc(var(--spacing) * 3)}.mb-2{margin-bottom:calc(var(--spacing) * 2)}.mb-3{margin-bottom:calc(var(--spacing) * 3)}.ml-2{margin-left:calc(var(--spacing) * 2)}.ml-auto{margin-left:auto}.block{display:block}.flex{display:flex}.grid{display:grid}.hidden{display:none}.inline{display:inline}.inline-block{display:inline-block}.table{display:table}.h-2{height:calc(var(--spacing) * 2)}.h-2\.5{height:calc(var(--spacing) * 2.5)}.h-3{height:calc(var(--spacing) * 3)}.h-4{height:calc(var(--spacing) * 4)}.h-5{height:calc(var(--spacing) * 5)}.h-7{height:calc(var(--spacing) * 7)}.h-8{height:calc(var(--spacing) * 8)}.h-9{height:calc(var(--spacing) * 9)}.h-12{height:calc(var(--spacing) * 12)}.h-\[18px\]{height:18px}.h-full{height:100%}.min-h-0{min-height:0}.min-h-\[7\.5rem\]{min-height:7.5rem}.w-1\.5{width:calc(var(--spacing) * 1.5)}.w-2\.5{width:calc(var(--spacing) * 2.5)}.w-3{width:calc(var(--spacing) * 3)}.w-4{width:calc(var(--spacing) * 4)}.w-7{width:calc(var(--spacing) * 7)}.w-8{width:calc(var(--spacing) * 8)}.w-9{width:calc(var(--spacing) * 9)}.w-12{width:calc(var(--spacing) * 12)}.w-16{width:calc(var(--spacing) * 16)}.w-20{width:calc(var(--spacing) * 20)}.w-24{width:calc(var(--spacing) * 24)}.w-28{width:calc(var(--spacing) * 28)}.w-64{width:calc(var(--spacing) * 64)}.w-72{width:calc(var(--spacing) * 72)}.w-\[4\.5rem\]{width:4.5rem}.w-\[21rem\]{width:21rem}.w-\[26rem\]{width:26rem}.w-fit{width:fit-content}.max-w-3xl{max-width:var(--container-3xl)}.max-w-5xl{max-width:var(--container-5xl)}.max-w-\[92\%\]{max-width:92%}.max-w-xs{max-width:var(--container-xs)}.min-w-0{min-width:0}.min-w-\[10rem\]{min-width:10rem}.flex-1{flex:1}.shrink-0{flex-shrink:0}.grow{flex-grow:1}.transform{transform:var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,)}.cursor-default{cursor:default}.cursor-not-allowed{cursor:not-allowed}.cursor-pointer{cursor:pointer}.grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.flex-col{flex-direction:column}.flex-wrap{flex-wrap:wrap}.items-baseline{align-items:baseline}.items-center{align-items:center}.items-start{align-items:flex-start}.justify-center{justify-content:center}.gap-1{gap:var(--spacing)}.gap-1\.5{gap:calc(var(--spacing) * 1.5)}.gap-2{gap:calc(var(--spacing) * 2)}.gap-3{gap:calc(var(--spacing) * 3)}.gap-4{gap:calc(var(--spacing) * 4)}.gap-px{gap:1px}:where(.space-y-1>:not(:last-child)){--tw-space-y-reverse:0;margin-block-start:calc(var(--spacing) * var(--tw-space-y-reverse));margin-block-end:calc(var(--spacing) * calc(1 - var(--tw-space-y-reverse)))}:where(.space-y-1\.5>:not(:last-child)){--tw-space-y-reverse:0;margin-block-start:calc(calc(var(--spacing) * 1.5) * var(--tw-space-y-reverse));margin-block-end:calc(calc(var(--spacing) * 1.5) * calc(1 - var(--tw-space-y-reverse)))}:where(.space-y-2>:not(:last-child)){--tw-space-y-reverse:0;margin-block-start:calc(calc(var(--spacing) * 2) * var(--tw-space-y-reverse));margin-block-end:calc(calc(var(--spacing) * 2) * calc(1 - var(--tw-space-y-reverse)))}:where(.space-y-3>:not(:last-child)){--tw-space-y-reverse:0;margin-block-start:calc(calc(var(--spacing) * 3) * var(--tw-space-y-reverse));margin-block-end:calc(calc(var(--spacing) * 3) * calc(1 - var(--tw-space-y-reverse)))}:where(.space-y-4>:not(:last-child)){--tw-space-y-reverse:0;margin-block-start:calc(calc(var(--spacing) * 4) * var(--tw-space-y-reverse));margin-block-end:calc(calc(var(--spacing) * 4) * calc(1 - var(--tw-space-y-reverse)))}:where(.space-y-5>:not(:last-child)){--tw-space-y-reverse:0;margin-block-start:calc(calc(var(--spacing) * 5) * var(--tw-space-y-reverse));margin-block-end:calc(calc(var(--spacing) * 5) * calc(1 - var(--tw-space-y-reverse)))}:where(.space-y-\[6px\]>:not(:last-child)){--tw-space-y-reverse:0;margin-block-start:calc(6px * var(--tw-space-y-reverse));margin-block-end:calc(6px * calc(1 - var(--tw-space-y-reverse)))}.truncate{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.overflow-hidden{overflow:hidden}.overflow-y-auto{overflow-y:auto}.rounded{border-radius:.25rem}.rounded-2xl{border-radius:var(--radius-2xl)}.rounded-full{border-radius:3.40282e38px}.rounded-lg{border-radius:var(--radius-lg)}.rounded-md{border-radius:var(--radius-md)}.rounded-sm{border-radius:var(--radius-sm)}.rounded-xl{border-radius:var(--radius-xl)}.rounded-r{border-top-right-radius:.25rem;border-bottom-right-radius:.25rem}.border{border-style:var(--tw-border-style);border-width:1px}.border-2{border-style:var(--tw-border-style);border-width:2px}.border-t{border-top-style:var(--tw-border-style);border-top-width:1px}.border-r{border-right-style:var(--tw-border-style);border-right-width:1px}.border-b{border-bottom-style:var(--tw-border-style);border-bottom-width:1px}.border-l{border-left-style:var(--tw-border-style);border-left-width:1px}.border-l-4{border-left-style:var(--tw-border-style);border-left-width:4px}.border-amber-300{border-color:var(--color-amber-300)}.border-amber-500{border-color:var(--color-amber-500)}.border-emerald-400{border-color:var(--color-emerald-400)}.border-emerald-500\/40{border-color:#00bb7f66}@supports (color:color-mix(in lab, red, red)){.border-emerald-500\/40{border-color:color-mix(in oklab, var(--color-emerald-500) 40%, transparent)}}.border-slate-700{border-color:var(--color-slate-700)}.border-slate-800{border-color:var(--color-slate-800)}.border-slate-800\/70{border-color:#1d293db3}@supports (color:color-mix(in lab, red, red)){.border-slate-800\/70{border-color:color-mix(in oklab, var(--color-slate-800) 70%, transparent)}}.border-transparent{border-color:#0000}.border-violet-600{border-color:var(--color-violet-600)}.bg-amber-400{background-color:var(--color-amber-400)}.bg-amber-500{background-color:var(--color-amber-500)}.bg-amber-950\/70{background-color:#461901b3}@supports (color:color-mix(in lab, red, red)){.bg-amber-950\/70{background-color:color-mix(in oklab, var(--color-amber-950) 70%, transparent)}}.bg-amber-950\/80{background-color:#461901cc}@supports (color:color-mix(in lab, red, red)){.bg-amber-950\/80{background-color:color-mix(in oklab, var(--color-amber-950) 80%, transparent)}}.bg-emerald-500{background-color:var(--color-emerald-500)}.bg-emerald-500\/10{background-color:#00bb7f1a}@supports (color:color-mix(in lab, red, red)){.bg-emerald-500\/10{background-color:color-mix(in oklab, var(--color-emerald-500) 10%, transparent)}}.bg-sky-500{background-color:var(--color-sky-500)}.bg-slate-600{background-color:var(--color-slate-600)}.bg-slate-700{background-color:var(--color-slate-700)}.bg-slate-800{background-color:var(--color-slate-800)}.bg-slate-800\/60{background-color:#1d293d99}@supports (color:color-mix(in lab, red, red)){.bg-slate-800\/60{background-color:color-mix(in oklab, var(--color-slate-800) 60%, transparent)}}.bg-slate-800\/70{background-color:#1d293db3}@supports (color:color-mix(in lab, red, red)){.bg-slate-800\/70{background-color:color-mix(in oklab, var(--color-slate-800) 70%, transparent)}}.bg-slate-900{background-color:var(--color-slate-900)}.bg-slate-900\/40{background-color:#0f172b66}@supports (color:color-mix(in lab, red, red)){.bg-slate-900\/40{background-color:color-mix(in oklab, var(--color-slate-900) 40%, transparent)}}.bg-slate-900\/50{background-color:#0f172b80}@supports (color:color-mix(in lab, red, red)){.bg-slate-900\/50{background-color:color-mix(in oklab, var(--color-slate-900) 50%, transparent)}}.bg-slate-900\/60{background-color:#0f172b99}@supports (color:color-mix(in lab, red, red)){.bg-slate-900\/60{background-color:color-mix(in oklab, var(--color-slate-900) 60%, transparent)}}.bg-slate-950{background-color:var(--color-slate-950)}.bg-slate-950\/90{background-color:#020618e6}@supports (color:color-mix(in lab, red, red)){.bg-slate-950\/90{background-color:color-mix(in oklab, var(--color-slate-950) 90%, transparent)}}.bg-slate-950\/95{background-color:#020618f2}@supports (color:color-mix(in lab, red, red)){.bg-slate-950\/95{background-color:color-mix(in oklab, var(--color-slate-950) 95%, transparent)}}.bg-violet-400{background-color:var(--color-violet-400)}.bg-violet-500{background-color:var(--color-violet-500)}.bg-violet-900\/60{background-color:#4d179a99}@supports (color:color-mix(in lab, red, red)){.bg-violet-900\/60{background-color:color-mix(in oklab, var(--color-violet-900) 60%, transparent)}}.bg-white{background-color:var(--color-white)}.p-2\.5{padding:calc(var(--spacing) * 2.5)}.p-3{padding:calc(var(--spacing) * 3)}.p-3\.5{padding:calc(var(--spacing) * 3.5)}.p-4{padding:calc(var(--spacing) * 4)}.p-5{padding:calc(var(--spacing) * 5)}.p-6{padding:calc(var(--spacing) * 6)}.px-1\.5{padding-inline:calc(var(--spacing) * 1.5)}.px-2{padding-inline:calc(var(--spacing) * 2)}.px-2\.5{padding-inline:calc(var(--spacing) * 2.5)}.px-3{padding-inline:calc(var(--spacing) * 3)}.px-4{padding-inline:calc(var(--spacing) * 4)}.px-5{padding-inline:calc(var(--spacing) * 5)}.px-6{padding-inline:calc(var(--spacing) * 6)}.py-0\.5{padding-block:calc(var(--spacing) * .5)}.py-1{padding-block:var(--spacing)}.py-1\.5{padding-block:calc(var(--spacing) * 1.5)}.py-2{padding-block:calc(var(--spacing) * 2)}.py-2\.5{padding-block:calc(var(--spacing) * 2.5)}.pt-1{padding-top:var(--spacing)}.pl-2{padding-left:calc(var(--spacing) * 2)}.text-center{text-align:center}.text-right{text-align:right}.text-2xl{font-size:var(--text-2xl);line-height:var(--tw-leading,var(--text-2xl--line-height))}.text-4xl{font-size:var(--text-4xl);line-height:var(--tw-leading,var(--text-4xl--line-height))}.text-5xl{font-size:var(--text-5xl);line-height:var(--tw-leading,var(--text-5xl--line-height))}.text-8xl{font-size:var(--text-8xl);line-height:var(--tw-leading,var(--text-8xl--line-height))}.text-base{font-size:var(--text-base);line-height:var(--tw-leading,var(--text-base--line-height))}.text-lg{font-size:var(--text-lg);line-height:var(--tw-leading,var(--text-lg--line-height))}.text-sm{font-size:var(--text-sm);line-height:var(--tw-leading,var(--text-sm--line-height))}.text-xl{font-size:var(--text-xl);line-height:var(--tw-leading,var(--text-xl--line-height))}.text-xs{font-size:var(--text-xs);line-height:var(--tw-leading,var(--text-xs--line-height))}.text-\[10px\]{font-size:10px}.text-\[11px\]{font-size:11px}.leading-none{--tw-leading:1;line-height:1}.leading-snug{--tw-leading:var(--leading-snug);line-height:var(--leading-snug)}.leading-tight{--tw-leading:var(--leading-tight);line-height:var(--leading-tight)}.font-black{--tw-font-weight:var(--font-weight-black);font-weight:var(--font-weight-black)}.font-bold{--tw-font-weight:var(--font-weight-bold);font-weight:var(--font-weight-bold)}.font-normal{--tw-font-weight:var(--font-weight-normal);font-weight:var(--font-weight-normal)}.font-semibold{--tw-font-weight:var(--font-weight-semibold);font-weight:var(--font-weight-semibold)}.tracking-wider{--tw-tracking:var(--tracking-wider);letter-spacing:var(--tracking-wider)}.tracking-widest{--tw-tracking:var(--tracking-widest);letter-spacing:var(--tracking-widest)}.whitespace-nowrap{white-space:nowrap}.text-amber-300{color:var(--color-amber-300)}.text-amber-400{color:var(--color-amber-400)}.text-emerald-300{color:var(--color-emerald-300)}.text-emerald-400{color:var(--color-emerald-400)}.text-rose-400{color:var(--color-rose-400)}.text-slate-100{color:var(--color-slate-100)}.text-slate-200{color:var(--color-slate-200)}.text-slate-300{color:var(--color-slate-300)}.text-slate-400{color:var(--color-slate-400)}.text-slate-500{color:var(--color-slate-500)}.text-slate-600{color:var(--color-slate-600)}.text-slate-700{color:var(--color-slate-700)}.text-slate-950{color:var(--color-slate-950)}.text-violet-200{color:var(--color-violet-200)}.text-white{color:var(--color-white)}.normal-case{text-transform:none}.uppercase{text-transform:uppercase}.tabular-nums{--tw-numeric-spacing:tabular-nums;font-variant-numeric:var(--tw-ordinal,) var(--tw-slashed-zero,) var(--tw-numeric-figure,) var(--tw-numeric-spacing,) var(--tw-numeric-fraction,)}.opacity-25{opacity:.25}.opacity-50{opacity:.5}.shadow{--tw-shadow:0 1px 3px 0 var(--tw-shadow-color,#0000001a), 0 1px 2px -1px var(--tw-shadow-color,#0000001a);box-shadow:var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow)}.shadow-2xl{--tw-shadow:0 25px 50px -12px var(--tw-shadow-color,#00000040);box-shadow:var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow)}.ring,.ring-1{--tw-ring-shadow:var(--tw-ring-inset,) 0 0 0 calc(1px + var(--tw-ring-offset-width)) var(--tw-ring-color,currentcolor);box-shadow:var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow)}.shadow-black\/50{--tw-shadow-color:#00000080}@supports (color:color-mix(in lab, red, red)){.shadow-black\/50{--tw-shadow-color:color-mix(in oklab, color-mix(in oklab, var(--color-black) 50%, transparent) var(--tw-shadow-alpha), transparent)}}.ring-amber-500{--tw-ring-color:var(--color-amber-500)}.ring-emerald-400{--tw-ring-color:var(--color-emerald-400)}.drop-shadow-\[0_0_35px_rgba\(52\,211\,153\,0\.7\)\]{--tw-drop-shadow-size:drop-shadow(0 0 35px var(--tw-drop-shadow-color,#34d399b3));--tw-drop-shadow:var(--tw-drop-shadow-size);filter:var(--tw-blur,) var(--tw-brightness,) var(--tw-contrast,) var(--tw-grayscale,) var(--tw-hue-rotate,) var(--tw-invert,) var(--tw-saturate,) var(--tw-sepia,) var(--tw-drop-shadow,)}.filter{filter:var(--tw-blur,) var(--tw-brightness,) var(--tw-contrast,) var(--tw-grayscale,) var(--tw-hue-rotate,) var(--tw-invert,) var(--tw-saturate,) var(--tw-sepia,) var(--tw-drop-shadow,)}.backdrop-blur-sm{--tw-backdrop-blur:blur(var(--blur-sm));-webkit-backdrop-filter:var(--tw-backdrop-blur,) var(--tw-backdrop-brightness,) var(--tw-backdrop-contrast,) var(--tw-backdrop-grayscale,) var(--tw-backdrop-hue-rotate,) var(--tw-backdrop-invert,) var(--tw-backdrop-opacity,) var(--tw-backdrop-saturate,) var(--tw-backdrop-sepia,);backdrop-filter:var(--tw-backdrop-blur,) var(--tw-backdrop-brightness,) var(--tw-backdrop-contrast,) var(--tw-backdrop-grayscale,) var(--tw-backdrop-hue-rotate,) var(--tw-backdrop-invert,) var(--tw-backdrop-opacity,) var(--tw-backdrop-saturate,) var(--tw-backdrop-sepia,)}.transition{transition-property:color,background-color,border-color,outline-color,text-decoration-color,fill,stroke,--tw-gradient-from,--tw-gradient-via,--tw-gradient-to,opacity,box-shadow,transform,translate,scale,rotate,filter,-webkit-backdrop-filter,backdrop-filter,display,content-visibility,overlay,pointer-events;transition-timing-function:var(--tw-ease,var(--default-transition-timing-function));transition-duration:var(--tw-duration,var(--default-transition-duration))}.transition-colors{transition-property:color,background-color,border-color,outline-color,text-decoration-color,fill,stroke,--tw-gradient-from,--tw-gradient-via,--tw-gradient-to;transition-timing-function:var(--tw-ease,var(--default-transition-timing-function));transition-duration:var(--tw-duration,var(--default-transition-duration))}.transition-transform{transition-property:transform,translate,scale,rotate;transition-timing-function:var(--tw-ease,var(--default-transition-timing-function));transition-duration:var(--tw-duration,var(--default-transition-duration))}.select-none{-webkit-user-select:none;user-select:none}@media (hover:hover){.hover\:scale-110:hover{--tw-scale-x:110%;--tw-scale-y:110%;--tw-scale-z:110%;scale:var(--tw-scale-x) var(--tw-scale-y)}.hover\:bg-amber-400:hover{background-color:var(--color-amber-400)}.hover\:bg-emerald-400:hover{background-color:var(--color-emerald-400)}.hover\:bg-slate-600:hover{background-color:var(--color-slate-600)}.hover\:bg-slate-700:hover{background-color:var(--color-slate-700)}.hover\:bg-violet-700:hover{background-color:var(--color-violet-700)}.hover\:text-amber-300:hover{color:var(--color-amber-300)}}.focus\:border-emerald-500:focus{border-color:var(--color-emerald-500)}.focus\:outline-none:focus{--tw-outline-style:none;outline-style:none}@media (min-width:48rem){.md\:grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.md\:grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}}@media (min-width:80rem){.xl\:grid-cols-6{grid-template-columns:repeat(6,minmax(0,1fr))}}}@property --tw-rotate-x{syntax:"*";inherits:false}@property --tw-rotate-y{syntax:"*";inherits:false}@property --tw-rotate-z{syntax:"*";inherits:false}@property --tw-skew-x{syntax:"*";inherits:false}@property --tw-skew-y{syntax:"*";inherits:false}@property --tw-space-y-reverse{syntax:"*";inherits:false;initial-value:0}@property --tw-border-style{syntax:"*";inherits:false;initial-value:solid}@property --tw-leading{syntax:"*";inherits:false}@property --tw-font-weight{syntax:"*";inherits:false}@property --tw-tracking{syntax:"*";inherits:false}@property --tw-ordinal{syntax:"*";inherits:false}@property --tw-slashed-zero{syntax:"*";inherits:false}@property --tw-numeric-figure{syntax:"*";inherits:false}@property --tw-numeric-spacing{syntax:"*";inherits:false}@property --tw-numeric-fraction{syntax:"*";inherits:false}@property --tw-shadow{syntax:"*";inherits:false;initial-value:0 0 #0000}@property --tw-shadow-color{syntax:"*";inherits:false}@property --tw-shadow-alpha{syntax:"<percentage>";inherits:false;initial-value:100%}@property --tw-inset-shadow{syntax:"*";inherits:false;initial-value:0 0 #0000}@property --tw-inset-shadow-color{syntax:"*";inherits:false}@property --tw-inset-shadow-alpha{syntax:"<percentage>";inherits:false;initial-value:100%}@property --tw-ring-color{syntax:"*";inherits:false}@property --tw-ring-shadow{syntax:"*";inherits:false;initial-value:0 0 #0000}@property --tw-inset-ring-color{syntax:"*";inherits:false}@property --tw-inset-ring-shadow{syntax:"*";inherits:false;initial-value:0 0 #0000}@property --tw-ring-inset{syntax:"*";inherits:false}@property --tw-ring-offset-width{syntax:"<length>";inherits:false;initial-value:0}@property --tw-ring-offset-color{syntax:"*";inherits:false;initial-value:#fff}@property --tw-ring-offset-shadow{syntax:"*";inherits:false;initial-value:0 0 #0000}@property --tw-blur{syntax:"*";inherits:false}@property --tw-brightness{syntax:"*";inherits:false}@property --tw-contrast{syntax:"*";inherits:false}@property --tw-grayscale{syntax:"*";inherits:false}@property --tw-hue-rotate{syntax:"*";inherits:false}@property --tw-invert{syntax:"*";inherits:false}@property --tw-opacity{syntax:"*";inherits:false}@property --tw-saturate{syntax:"*";inherits:false}@property --tw-sepia{syntax:"*";inherits:false}@property --tw-drop-shadow{syntax:"*";inherits:false}@property --tw-drop-shadow-color{syntax:"*";inherits:false}@property --tw-drop-shadow-alpha{syntax:"<percentage>";inherits:false;initial-value:100%}@property --tw-drop-shadow-size{syntax:"*";inherits:false}@property --tw-backdrop-blur{syntax:"*";inherits:false}@property --tw-backdrop-brightness{syntax:"*";inherits:false}@property --tw-backdrop-contrast{syntax:"*";inherits:false}@property --tw-backdrop-grayscale{syntax:"*";inherits:false}@property --tw-backdrop-hue-rotate{syntax:"*";inherits:false}@property --tw-backdrop-invert{syntax:"*";inherits:false}@property --tw-backdrop-opacity{syntax:"*";inherits:false}@property --tw-backdrop-saturate{syntax:"*";inherits:false}@property --tw-backdrop-sepia{syntax:"*";inherits:false}@property --tw-scale-x{syntax:"*";inherits:false;initial-value:1}@property --tw-scale-y{syntax:"*";inherits:false;initial-value:1}@property --tw-scale-z{syntax:"*";inherits:false;initial-value:1}</style>
 <!-- tailwind:end -->
 <style>
   /* Minimal hand-rolled CSS: only what Tailwind utilities can't express */
@@ -216,17 +101,12 @@
       <!-- variable groups are generated here by §1 -->
       <div id="configGroups" class="space-y-5"></div>
 
-      <!-- Length → points table editor -->
-      <section>
-        <h3 class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">Length score table <span class="normal-case font-normal text-slate-500">(points banked on death)</span></h3>
-        <div id="scoreTableRows" class="space-y-1.5"></div>
-        <div class="mt-2 flex gap-4">
-          <button id="btnAddScoreRow" class="text-xs text-emerald-400 hover:text-emerald-300">+ add threshold</button>
-          <button id="btnTriangular" class="text-xs text-amber-400 hover:text-amber-300"
-                  title="Regenerate the halved-triangular default (1, 2, 3, 5, 8…) from the current starting & max lengths">↺ triangular fill</button>
-        </div>
+      <section aria-label="Quick rules" class="text-xs text-slate-300 space-y-1.5">
+        <h3 class="font-bold text-emerald-400">Quick rules</h3>
+        <p>Orange food stays printed. Gold super food: 2 growth. Purple special food: 2 growth + a card. Pickups disappear when eaten.</p>
+        <p>Score 1 per segment gained, or 2 per segment that cannot fit. Death keeps your score and drops food at head and tail only.</p>
+        <p>One personal boost each round. Growth spaces 3, 6 and 10 grant expendable extras.</p>
       </section>
-
       <!-- Seats: who is human, who is a bot -->
       <section>
         <h3 class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">Seats <span class="normal-case font-normal text-slate-500">(pass-and-play: set 2+ humans)</span></h3>
@@ -277,7 +157,7 @@
             <div class="text-center space-y-4 fade-in">
               <div class="text-5xl">💀</div>
               <div id="respawnText" class="text-xl font-bold"></div>
-              <p class="text-sm text-slate-400 max-w-xs mx-auto">Place a new snake: 4 contiguous cells, at least one touching a board corner.
+              <p class="text-sm text-slate-400 max-w-xs mx-auto">Place a new snake: 3 contiguous empty cells anywhere on the board.
                 The panic timer is paused while you place.</p>
               <button id="btnRespawn" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg px-6 py-2.5">🐣 Respawn</button>
             </div>
@@ -415,42 +295,20 @@ const CAUSE_LABELS = { wall: 'Wall crash', head: 'Head-to-head', body: 'Body cra
 
 const CONFIG_FIELDS = [
   // ── board & players ──
-  { id: 'playerCount',         label: 'Players',                 min: 2,  max: 8,   def: 4,   group: 'Board & players', hint: '2–8 snakes — one mini-board each' },
-  { id: 'tileSize',            label: 'Mini-board size (t×t)',   min: 3,  max: 8,   def: 4,   group: 'Board & players', hint: 'One t×t board per player, tiled near-square (3 players = an L)' },
-  { id: 'startingLength',      label: 'Starting length',         min: 2,  max: 15,  def: 4,   group: 'Board & players', hint: 'Segments at spawn (head + 3)' },
+  { id: 'playerCount',         label: 'Players',                 min: 2,  max: 6,   def: 4,   group: 'Board & players', hint: '2–4 players: 8×8; 5–6 players: 10×10' },
+  { id: 'startingLength',      label: 'Starting length',         min: 2,  max: 15,  def: 3,   group: 'Board & players', hint: 'Segments at spawn (head + 2)' },
   // ── movement & boost ──
   { id: 'commandSlots',        label: 'Command slots',           min: 2,  max: 8,   def: 6,   group: 'Movement & boost', hint: 'Cards programmed per round (min 2)' },
   { id: 'boostDistance',       label: 'Boost distance',          min: 2,  max: 6,   def: 3,   group: 'Movement & boost', hint: 'Cells covered by one boost card slide' },
   { id: 'freeBoostsPerRound',  label: 'Personal boost tiles',    min: 0,  max: 3,   def: 1,   group: 'Movement & boost', hint: 'Always yours; back in hand every round' },
   { id: 'maxBoostCards',       label: 'Max spare boost tiles',   min: 0,  max: 20,  def: 6,   group: 'Movement & boost', hint: 'Cap on spare boost tiles from milestones and Rev Up' },
   // ── printed food ──
-  { id: 'foodSpotsPerTile',    label: 'Food spots / mini-board', min: 1,  max: 16,  def: 5,   group: 'Printed food', hint: 'Fixed spots printed on every mini-board — they never deplete' },
-  { id: 'boostSpotPercent',    label: 'Boards with special space (%)', min: 0, max: 100, def: 67, group: 'Printed food', hint: 'Share of mini-boards carrying a printed swirl (draw a Special card; never depletes)' },
-  { id: 'x2FoodPercent',       label: '×2 food share (%)',       min: 0,  max: 100, def: 0,   group: 'Printed food', hint: 'Share of printed spots worth ×2 (0 by default — ×2 comes from bounty only)' },
   // ── match & guards ──
   { id: 'pointsToWin',         label: 'Points to win',           min: 10, max: 500, def: 30,  group: 'Match rules', hint: 'Instant victory threshold' },
-  { id: 'maxSnakeLength',      label: 'Max snake length',        min: 6,  max: 64,  def: 14,  group: 'Match rules', hint: 'Body-piece supply cap' },
+  { id: 'maxSnakeLength',      label: 'Max snake length',        min: 6,  max: 64,  def: 13,  group: 'Match rules', hint: 'Body-piece supply cap' },
   { id: 'maxLengthFoodBonus',  label: 'Max-length food bonus',   min: 0,  max: 250, def: 2,   group: 'Match rules', hint: 'Points per food unit a capped snake eats (snake food = double)' },
   { id: 'maxRounds',           label: 'Max rounds (guard)',      min: 10, max: 500, def: 100, group: 'Match rules', hint: 'Highest score wins at the cap' },
-  { id: 'panicSeconds',        label: 'Panic timer (s)',         min: 5,  max: 60,  def: 10,  group: 'Match rules', hint: 'Countdown once the first player locks' },
-];
-
-/** Optional refill helper: a halved-triangular climb (1, 2, 3, 5, 8 …) from
-    the starting length to the max — used by the "↺ triangular fill" button. */
-function triangularScoreTable(startLen = 3, maxLen = 13) {
-  const rows = [{ min: 1, pts: 0 }];
-  let tri = 0, step = 1;
-  for (let L = startLen + 1; L <= maxLen; L++) { tri += step++; rows.push({ min: L, pts: Math.ceil(tri / 2) }); }
-  return rows;
-}
-
-/** Default score table: the player board's ten spaces, worth 1…10 — one per
-    segment grown above the starting length of 4. Your score simply equals how
-    far along this track your snake is; it is banked as you eat, not on death. */
-const DEFAULT_SCORE_TABLE = [
-  { min: 5, pts: 1 }, { min: 6, pts: 2 }, { min: 7, pts: 3 }, { min: 8, pts: 4 },
-  { min: 9, pts: 5 }, { min: 10, pts: 6 }, { min: 11, pts: 7 }, { min: 12, pts: 8 },
-  { min: 13, pts: 9 }, { min: 14, pts: 10 },
+  { id: 'panicSeconds',        label: 'Panic timer (s)',         min: 5,  max: 60,  def: 15,  group: 'Match rules', hint: 'Countdown once the first player locks' },
 ];
 
 /** Build the sidebar inputs from the schema (one-time). */
@@ -474,40 +332,9 @@ function buildConfigPanel() {
 }
 
 /** Render the score-table editor rows from an array of {min, pts}. */
-function renderScoreTable(rows) {
-  $('scoreTableRows').innerHTML = rows.map((r, i) => `
-    <div class="flex items-center gap-2 text-xs" data-score-row>
-      <span class="text-slate-500 w-14">length ≥</span>
-      <input type="number" min="1" max="64" value="${r.min}" data-st-min class="w-14 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-right">
-      <span class="text-slate-500">→</span>
-      <input type="number" min="0" max="999" value="${r.pts}" data-st-pts class="w-16 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-right">
-      <span class="text-slate-500">pts</span>
-      <button data-st-del="${i}" class="ml-auto text-slate-600 hover:text-rose-400" title="Remove row">✕</button>
-    </div>`).join('');
-  // wire row deletion (rebuild from current DOM state minus the row)
-  $('scoreTableRows').querySelectorAll('[data-st-del]').forEach((btn) => {
-    btn.onclick = () => {
-      const rows = readScoreTable();
-      rows.splice(Number(btn.dataset.stDel), 1);
-      renderScoreTable(rows.length ? rows : [{ min: 1, pts: 0 }]);
-    };
-  });
-}
-
-/** Read score-table rows back out of the DOM (sorted by min ascending). */
-function readScoreTable() {
-  return [...$('scoreTableRows').querySelectorAll('[data-score-row]')].map((row) => ({
-    min: clamp(Number(row.querySelector('[data-st-min]').value) || 1, 1, 64),
-    pts: clamp(Number(row.querySelector('[data-st-pts]').value) || 0, 0, 999),
-  })).sort((a, b) => a.min - b.min);
-}
-
-/** Seat setup state (persists across games): type + editable name per seat. */
 const seatSetup = SEAT_COLORS.map((c, i) => ({ name: `P${i + 1}`, isBot: i !== 0 }));
-
-/** Render seat rows for the current playerCount. */
 function renderSeatRows() {
-  const n = clamp(Number($('cfg-playerCount').value) || 4, 2, 8);
+  const n = clamp(Number($('cfg-playerCount').value) || 4, 2, 6);
   $('seatRows').innerHTML = seatSetup.slice(0, n).map((s, i) => `
     <div class="flex items-center gap-2">
       <span class="w-3 h-3 rounded-full shrink-0" style="background:${SEAT_COLORS[i].bright}"></span>
@@ -530,9 +357,7 @@ function renderSeatRows() {
 function readConfig() {
   const cfg = {};
   for (const f of CONFIG_FIELDS) cfg[f.id] = clamp(Math.round(Number($(`cfg-${f.id}`).value) || f.def), f.min, f.max);
-  cfg.lengthScoreTable = readScoreTable();
   // cross-field consistency (clamped silently; the panel shows the raw values)
-  cfg.foodSpotsPerTile = Math.min(cfg.foodSpotsPerTile, cfg.tileSize * cfg.tileSize);
   cfg.startingLength   = Math.min(cfg.startingLength, cfg.maxSnakeLength);
   return cfg;
 }
@@ -541,10 +366,8 @@ function readConfig() {
 function makeConfig(overrides = {}) {
   const cfg = {};
   for (const f of CONFIG_FIELDS) cfg[f.id] = f.def;
-  cfg.lengthScoreTable = DEFAULT_SCORE_TABLE.map((r) => ({ ...r }));
   Object.assign(cfg, overrides);
   cfg.startingLength   = Math.min(cfg.startingLength, cfg.maxSnakeLength);   // same clamps readConfig applies
-  cfg.foodSpotsPerTile = Math.min(cfg.foodSpotsPerTile, cfg.tileSize * cfg.tileSize);
   return cfg;
 }
 
@@ -675,51 +498,19 @@ class Engine {
       locked: false,
     }));
 
-    // ── modular board: one tileSize×tileSize mini-board per player, tiled
-    // as close to an even square as possible (3 players → an L, etc.) ──
-    const t = cfg.tileSize;
-    const nTiles = seats.length;
-    const cols = Math.ceil(Math.sqrt(nTiles));
-    const rows = Math.ceil(nTiles / cols);
-    this.tileSize = t;
-    this.tiles = Array.from({ length: nTiles }, (_, i) => ({ x0: (i % cols) * t, y0: Math.floor(i / cols) * t }));
-    this.W = cols * t;
-    this.H = rows * t;
-    this.valid = new Set();          // cells that belong to a placed mini-board
-    this.corners = new Set();        // the 4 corner cells of every mini-board
-    for (const tile of this.tiles) {
-      for (let y = 0; y < t; y++) for (let x = 0; x < t; x++) this.valid.add(cellKey(tile.x0 + x, tile.y0 + y));
-      for (const [cx, cy] of [[0, 0], [t - 1, 0], [0, t - 1], [t - 1, t - 1]])
-        this.corners.add(cellKey(tile.x0 + cx, tile.y0 + cy));
-    }
-
-    // ── printed food: every mini-board gets its OWN randomized layout with
-    // rotational asymmetry (so turning a board around actually changes it),
-    // matching the printed PnP boards. Spots never deplete — a snake
-    // covering one just blocks it until the cell frees up. ──
-    this.spots = new Map();          // cellKey → { kind:'food', value:1|2 } — static
-    const perTile = Math.min(cfg.foodSpotsPerTile, t * t);
-    const n2 = Math.round(perTile * (cfg.x2FoodPercent ?? 0) / 100);
-    // …and a share of the boards also carry a printed BOOST space (+1 card,
-    // likewise permanent) on a cell with no food.
-    const nBoostBoards = Math.round(this.tiles.length * (cfg.boostSpotPercent ?? 67) / 100);
-    this.tiles.forEach((tile, ti) => {
-      const layout = randomFoodLayout(t, perTile, rng);
-      const taken = new Set(layout.map((c) => c.y * t + c.x));   // same encoding as `free` below
-      layout.forEach((c, i) => {
-        this.spots.set(cellKey(tile.x0 + c.x, tile.y0 + c.y), { kind: 'food', value: i < n2 ? 2 : 1 });
-      });
-      if (ti < nBoostBoards) {
-        const free = rngShuffle(rng, Array.from({ length: t * t }, (_, k) => k).filter((k) => !taken.has(k)));
-        if (free.length) {
-          const c = { x: free[0] % t, y: Math.floor(free[0] / t) };
-          this.spots.set(cellKey(tile.x0 + c.x, tile.y0 + c.y), { kind: 'special', value: 1 });
-        }
-      }
-    });
-
-    // dynamic pickups (one-shot): snake food dropped by deaths
-    this.food = new Map();          // cellKey → { kind:'bounty', value, ownerSeat }
+    // Full printed board; smaller games use its central 8×8 area.
+    const size = seats.length >= 5 ? 10 : 8;
+    const offset = size === 8 ? 1 : 0;
+    this.W = this.H = this.tileSize = size;
+    this.tiles = [{x0: 0, y0: 0}];
+    this.valid = new Set(Array.from({length: size * size}, (_,i) => cellKey(i % size, Math.floor(i / size))));
+    this.corners = new Set([[0,0],[size-1,0],[0,size-1],[size-1,size-1]].map(([x,y]) => cellKey(x,y)));
+    // Keep these coordinates synchronized with print/board.json (tested).
+    const regularFood = [[2, 2], [7, 2], [2, 7], [7, 7], [4, 3], [5, 3], [3, 4], [6, 5], [4, 6], [5, 6]];
+    const specialFood = [[4, 4], [5, 5], [5, 4]];
+    this.spots = new Map(regularFood.map(([x,y]) => [cellKey(x-offset,y-offset), {kind:'food',value:1}]));
+    this.food = new Map(specialFood.slice(0, Math.floor(seats.length / 2)).map(([x,y]) =>
+      [cellKey(x-offset,y-offset), {kind:'special',value:2}]));
 
     // the Special deck: 9 effects × 2 copies, shuffled; discards recycle
     this.specialDeck = rngShuffle(rng, SPECIALS.flatMap((sp) => [sp.slug, sp.slug]));
@@ -776,9 +567,7 @@ class Engine {
 
   /* ── setup ─────────────────────────────────────────────────────────── */
 
-  /** Deal the opening board: round 1. Nothing is scattered — every pickup is
-      either printed on a board or dropped by a death. Snakes place afterwards
-      through the normal placement flow. */
+  /** Start round 1 with the fixed board and designated special-food tokens. */
   setup() {
     this.round = 1;
     return [];
@@ -802,13 +591,6 @@ class Engine {
     return occ;
   }
 
-  /** Points banked for dying at a given length (highest threshold ≤ len). */
-  scoreForLength(len) {
-    let pts = 0;
-    for (const row of this.cfg.lengthScoreTable) if (len >= row.min) pts = row.pts;
-    return pts;
-  }
-
   /* ── spawning ──────────────────────────────────────────────────────── */
 
   /** Spawn footprint: a contiguous chain of up to 3 distinct cells, head
@@ -826,11 +608,11 @@ class Engine {
 
   /** Validate a full placement chain [head, …]: the right number of DISTINCT
       contiguous cells, in-bounds, free of snakes and one-shot pickups, and
-      at least one cell must touch a CORNER of some mini-board. Printed food
+      any contiguous empty cells are allowed. Printed food
       spots may be covered — a placement never eats what it covers. */
   validChain(cells, requireCorner = null) {
     if (!Array.isArray(cells) || cells.length !== this.spawnFootprint()) return false;
-    if (requireCorner === null) requireCorner = this.cornerPlacementPossible();
+    if (requireCorner === null) requireCorner = false;
     const occ = this.occupancy();
     const seen = new Set();
     let touchesCorner = false;
@@ -894,19 +676,8 @@ class Engine {
       penalty for staring straight at a wall or a body. This is the
       anti-enclosure heuristic. Returns the chain cells, or null. */
   smartPlacement() {
-    // corner-touching spots if any exist; otherwise fall back to every legal
-    // spot and prefer the one closest to a corner
-    const onCorner = this.allChains(true);
-    const fallback = onCorner.length ? null : this.allChains(false);
-    let candidates = onCorner.length ? onCorner : (fallback || []);
+    let candidates = this.allChains(false);
     if (!candidates.length) return null;
-    if (!onCorner.length) {                            // rank by distance to the nearest corner
-      const cs = [...this.corners].map((k) => ({ x: k & 63, y: k >> 6 }));
-      const distOf = (chain) => Math.min(...chain.map((c) =>
-        Math.min(...cs.map((q) => Math.abs(q.x - c.x) + Math.abs(q.y - c.y)))));
-      const best = Math.min(...candidates.map(distOf));
-      candidates = candidates.filter((c) => distOf(c) === best);
-    }
     rngShuffle(this.rng, candidates);
     candidates = candidates.slice(0, 60);              // enough options to choose between
     const occ = this.occupancy();
@@ -1032,6 +803,7 @@ class Engine {
     }
     const events = movers.length ? this.resolveSubstep(movers) : [];
     T.step++;
+    if (this.players.some(p => p.score >= this.cfg.pointsToWin)) T.maxSteps = T.step;
     return { events, more: T.step < T.maxSteps };
   }
 
@@ -1041,7 +813,7 @@ class Engine {
     const events = [];
     for (const a of T.acts) if (a.boost && !a.p.alive) this.stats.boostCrashes++;
     // Instant end the moment a score crosses the line (mid-round counts);
-    // endGame then runs the living-snake cash-out and compares totals.
+    // Compare current scores; there is no final cash-out.
     if (this.players.some((p) => p.score >= this.cfg.pointsToWin)) {
       events.push(...this.endGame('score'));
     }
@@ -1061,9 +833,8 @@ class Engine {
     const events = [];
 
     // (1)+(2) compute targets & how many segments this move will grow.
-    // Only FOOD/BOUNTY (with room under the cap) grow you; a special space
-    // draws a card but doesn't grow, so its tail still clears. Nom Nom makes
-    // each bead of snake food grow one extra.
+    // All food grows when there is room. Special food also draws a card;
+    // Nom Nom adds one food unit to super and special pickups.
     for (const m of movers) {
       const d = DIRS[m.dir];
       m.tx = m.p.body[0].x + d.dx;
@@ -1071,9 +842,9 @@ class Engine {
       m.inB = this.inBounds(m.tx, m.ty);
       m.token = m.inB ? this.edibleAt(cellKey(m.tx, m.ty)) : null;
       let grow = 0;
-      if (m.token && m.token.kind !== 'special') {   // only food & bounty grow
+      if (m.token) {   // every food kind grows
         const room = this.cfg.maxSnakeLength - m.p.body.length;
-        const v = m.token.value + (m.token.kind === 'bounty' && m.p.fx['nom-nom'] ? 1 : 0);
+        const v = m.token.value + (m.token.kind !== 'food' && m.p.fx['nom-nom'] ? 1 : 0);
         grow = Math.max(0, Math.min(v, room));
         m.tokenValue = v;
       }
@@ -1143,15 +914,14 @@ class Engine {
       const at = { x: m.tx, y: m.ty };
 
       if (f.kind === 'special') {
-        // printed swirl: draw a Special card (no growth; tail already cleared)
+        // Special food grants both growth and a card.
         events.push(...this.drawSpecial(p, at));
-        continue;
       }
 
       // FOOD SPOT / BOUNTY CHIP: growth only (no energy). Grow by growUnits
       // (head unshift is unit #1; each extra stacks behind the head); units
       // that don't fit the cap convert to immediate points.
-      const lenBefore = p.body.length - 1;                   // before this move's growth
+      const lenBefore = p.body.length - (m.growUnits > 0 ? 1 : 0);
       for (let u = 1; u < m.growUnits; u++) p.body.splice(2, 0, { x: p.body[1].x, y: p.body[1].y });
       // milestone: the boost icons printed inside the player board's 3rd,
       // 6th and 10th boxes — revealed as those sticks come out
@@ -1181,10 +951,7 @@ class Engine {
     return events;
   }
 
-  /** Death: bank length points, flip body chips into bounty food. Only every
-      OTHER piece flips (starting right behind the head) — half the chips,
-      half the physical upkeep; the skipped pieces exit with the player. The
-      head token never flips. */
+  /** Death replaces only the pre-step head and tail; score stays banked. */
   killSnake(p, cause, clearedTail, events, crashAt) {
     const lenAtDeath = p.body.length + (clearedTail ? 1 : 0);
     const pts = 0;                    // points were scored as the snake grew; dying costs nothing extra
@@ -1192,23 +959,23 @@ class Engine {
     this.stats.deathsByCause[cause]++;
     const chips = [];
     const seen = new Set();
-    p.body.slice(1).forEach((c, i) => {
-      if (i % 2 !== 0) return;                         // every other piece only
+    // Before the fatal step: the head has not moved yet; the tail may have cleared.
+    const endpoints = [p.body[0], clearedTail || p.body.at(-1)];
+    for (const c of endpoints) {
+      if (!c || !this.inBounds(c.x, c.y)) continue;
       const k = cellKey(c.x, c.y);
-      if (seen.has(k) || this.food.has(k)) return;     // dedupe stacks; never stack two pickups
+      if (seen.has(k)) continue;
       seen.add(k);
-      this.food.set(k, { kind: 'bounty', value: 2, ownerSeat: p.seat });   // 'snake food'
+      const kind = this.rng() < 1 / 3 ? 'special' : 'bounty';
+      this.food.set(k, { kind, value: 2, ownerSeat: p.seat });
       chips.push({ ...c });
-    });
+    }
     p.alive = false;
     p.body = [];
     events.push({ t: 'death', seat: p.seat, cause, len: lenAtDeath, pts, chips, at: crashAt });
   }
 
-  /** End the game: every LIVING snake banks its current length through the
-      score table (the final cash-out), THEN totals decide the winner — so
-      the player who triggered the end doesn't automatically win. Ties are
-      broken randomly. Returns the cash-out + gameover events. */
+  /** Scores are already banked. No death or final cash-out. */
   endGame(reason) {
     this.gameOver = true;
     this.endReason = reason;
@@ -1218,7 +985,8 @@ class Engine {
       void p;                         // scores are already current — no end-of-game cash-out
     }
     const top = Math.max(...this.players.map((p) => p.score));
-    this.winnerSeat = rngPick(this.rng, this.players.filter((p) => p.score === top)).seat;
+    this.winnerSeats = this.players.filter(p => p.score === top).map(p => p.seat);
+    this.winnerSeat = rngPick(this.rng, this.winnerSeats); // representative for legacy simulation counters
     events.push({ t: 'gameover' });
     return events;
   }
@@ -1254,7 +1022,7 @@ class Engine {
 
   /* ── quick board metrics (simulation pickup density) ───────────────── */
   foodCounts() {
-    let neutral = 0, bounty = 0;   // neutral = un-eaten ×2-energy tokens; bounty = chips
+    let neutral = 0, bounty = 0;   // legacy metric names: special / super food
     for (const f of this.food.values()) f.kind === 'bounty' ? bounty++ : neutral++;
     return { neutral, bounty };
   }
@@ -1392,7 +1160,7 @@ const Bot = {
         const tok = foods.find((f) => f.k === k && !eaten.has(f.k));
         // grow only on food/bounty with room; boost tokens draw cards instead
         let grow = 0;
-        if (tok && tok.kind !== 'special') grow = Math.max(0, Math.min(tok.value, cfg.maxSnakeLength - own.length));
+        if (tok) grow = Math.max(0, Math.min(tok.value, cfg.maxSnakeLength - own.length));
         own.unshift({ x: nx, y: ny }); bump(k, +1);
         if (tok) eaten.add(k);
         if (grow > 0) { for (let u = 1; u < grow; u++) { const nk = cellKey(own[1].x, own[1].y); own.splice(2, 0, { ...own[1] }); bump(nk, +1); } }
@@ -1667,7 +1435,7 @@ const Renderer = {
       ctx.restore();
     }
 
-    // one-shot pickups: violet ×2-energy tokens, player-coloured bounty
+    // One-shot pickups: gold super food, violet special food.
     const stamp2 = (x, y, col) => {                 // little "2" badge for value-2 tokens
       ctx.fillStyle = col;
       ctx.font = `bold ${Math.max(7, s * 0.2)}px system-ui`;
@@ -1679,8 +1447,8 @@ const Renderer = {
       {
         // snake food (dropped by a death): a yellow glass dome, seen from the side
         ctx.save();
-        ctx.shadowColor = '#facc15'; ctx.shadowBlur = s * 0.35;
-        ctx.fillStyle = '#eab308';
+        ctx.shadowColor = f.kind === 'special' ? '#a78bfa' : '#facc15'; ctx.shadowBlur = s * 0.35;
+        ctx.fillStyle = f.kind === 'special' ? '#8b5cf6' : '#eab308';
         ctx.beginPath();
         ctx.arc(x, y + s * 0.09, s * 0.26, Math.PI, 0);      // dome
         ctx.closePath(); ctx.fill();
@@ -1848,7 +1616,7 @@ const LIVE = {
     this.engine = new Engine(cfg, seats, mulberry32((Math.random() * 0xffffffff) >>> 0));
     const events = this.engine.setup();
     clearLog();
-    log(`— New game · ${cfg.playerCount} mini-boards of ${cfg.tileSize}×${cfg.tileSize} · first to ${cfg.pointsToWin} pts —`);
+    log(`— New game · ${cfg.playerCount >= 5 ? 10 : 8}×${cfg.playerCount >= 5 ? 10 : 8} board · first to ${cfg.pointsToWin} pts —`);
     consumeEvents(events);
     this.multiHuman = seats.filter((s) => !s.isBot).length > 1;
     Renderer.effects = [];
@@ -2197,7 +1965,7 @@ const LIVE = {
     this.phase = 'gameover';
     const w = e.players[e.winnerSeat];
     setPhaseText('Game over.');
-    $('winnerText').innerHTML = `<span style="color:${w.color}">${esc(w.name)}</span> wins with ${w.score} pts!`;
+    $('winnerText').textContent = e.winnerSeats.map(seat => e.players[seat].name).join(' & ') + (e.winnerSeats.length > 1 ? ' share the win' : ' wins') + ` with ${w.score} pts!`;
     $('winnerSub').textContent = e.endReason === 'score'
       ? `Reached ${e.cfg.pointsToWin} points in round ${e.round}`
       : `Round cap (${e.cfg.maxRounds}) reached — highest score wins`;
@@ -2386,7 +2154,7 @@ function renderPlacementStrip() {
         <span class="w-3 h-3 rounded-full" style="background:${p.color}"></span>
         <b>${esc(p.name)}</b>
         <span class="text-slate-400 text-xs">🐣 place your snake — ${stepText}</span>
-        <span class="ml-auto text-[11px] text-slate-500">${need} contiguous cells touching any mini-board corner · covered food isn't eaten · ⏸ panic timer paused</span>
+        <span class="ml-auto text-[11px] text-slate-500">${need} contiguous empty cells anywhere · covered food isn't eaten · ⏸ panic timer paused</span>
       </div>
       <div class="flex items-center gap-3">
         <div class="flex gap-1.5">${pips}</div>
@@ -2534,20 +2302,20 @@ function consumeEvents(events) {
     if (ev.t === 'death') {
       const p = e.players[ev.seat];
       sounds.add('death');
-      log(`💥 <b>${esc(p.name)}</b> died: ${CAUSE_LABELS[ev.cause].toLowerCase()} at length ${ev.len}, leaving ${ev.chips.length} snake food`, p.color);
+      log(`💥 <b>${esc(p.name)}</b> died: ${CAUSE_LABELS[ev.cause].toLowerCase()} at length ${ev.len}, leaving ${ev.chips.length} food pickups`, p.color);
       if (ev.at && e.inBounds(ev.at.x, ev.at.y)) Renderer.addEffect({ kind: 'boom', x: ev.at.x, y: ev.at.y, color: p.color, life: 650 });
       else if (ev.chips[0]) Renderer.addEffect({ kind: 'boom', ...ev.chips[0], color: p.color, life: 650 });
     }
     else if (ev.t === 'eat') {
       const p = e.players[ev.seat];
       sounds.add(ev.value === 2 ? 'eat2x' : ev.kind === 'bounty' ? 'bounty' : 'eat');
-      if (ev.kind === 'bounty') log(`🍯 ${esc(p.name)} ate snake food (+2 growth)`, p.color);
+      if (ev.kind === 'bounty') log(`🍯 ${esc(p.name)} ate super food (value 2)`, p.color);
       else if (ev.value === 2) log(`🍒 ${esc(p.name)} ate a +2 food (grow 2)`, p.color);
     }
     else if (ev.t === 'specialDraw') {
       const p = e.players[ev.seat];
       sounds.add('bounty');
-      log(`🌀 ${esc(p.name)} crossed a special space and drew a Special card`, p.color);
+      log(`🌀 ${esc(p.name)} ate special food and drew a Special card`, p.color);
     }
     else if (ev.t === 'specialPlay') {
       const p = e.players[ev.seat];
@@ -2654,7 +2422,7 @@ function renderSimResults(a) {
     <div class="space-y-4 fade-in">
       <div class="flex items-baseline gap-3 flex-wrap">
         <h2 class="text-lg font-bold text-white">Simulation results</h2>
-        <span class="text-xs text-slate-500">${a.runs} games · ${a.cfg.playerCount} mini-boards of ${a.cfg.tileSize}×${a.cfg.tileSize} · ${a.cfg.playerCount} bots ·
+        <span class="text-xs text-slate-500">${a.runs} games · ${a.cfg.playerCount >= 5 ? 10 : 8}×${a.cfg.playerCount >= 5 ? 10 : 8} board · ${a.cfg.playerCount} bots ·
           first to ${a.cfg.pointsToWin} pts · ${fmt1(a.ms)} ms total (${fmt1(a.ms / a.runs)} ms/game)</span>
       </div>
 
@@ -2705,7 +2473,7 @@ function renderSimResults(a) {
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
           <h3 class="text-sm font-semibold text-slate-200 mb-3">Pickups left at game end</h3>
           <div class="space-y-[6px] border-l border-slate-700 pl-2">
-            ${barRow('+2 boost tokens', a.foodNeutralSum / a.runs, Math.max(1, a.cfg.playerCount - 1), '#c98500', `${fmt1(a.foodNeutralSum / a.runs)} avg`)}
+            ${barRow('Special food', a.foodNeutralSum / a.runs, Math.max(1, a.cfg.playerCount - 1), '#c98500', `${fmt1(a.foodNeutralSum / a.runs)} avg`)}
             ${barRow('Snake food', a.foodBountySum / a.runs, 20, '#3987e5', `${fmt1(a.foodBountySum / a.runs)} avg`)}
           </div>
           <p class="text-[11px] text-slate-500 mt-3">Printed food spots never deplete — only one-shot pickups are counted here.</p>
@@ -2741,21 +2509,13 @@ async function onRunSimulation() {
    ════════════════════════════════════════════════════════════════════════ */
 function boot() {
   buildConfigPanel();
-  renderScoreTable(DEFAULT_SCORE_TABLE);
   renderSeatRows();
   Renderer.init();
 
   $('cfg-playerCount').addEventListener('input', renderSeatRows);
-  $('btnAddScoreRow').onclick = () => {
-    const rows = readScoreTable();
-    const last = rows[rows.length - 1] || { min: 1, pts: 0 };
-    rows.push({ min: last.min + 3, pts: last.pts + 10 });
-    renderScoreTable(rows);
-  };
   $('btnDefaults').onclick = () => {
     for (const f of CONFIG_FIELDS) $(`cfg-${f.id}`).value = f.def;
-    renderScoreTable(DEFAULT_SCORE_TABLE);
-    renderSeatRows();
+      renderSeatRows();
   };
 
   $('btnNewGame').onclick = (ev) => {
@@ -2781,11 +2541,6 @@ function boot() {
     $('soundToggle').textContent = Sound.enabled ? '🔊' : '🔇';
     if (Sound.enabled) Sound.play('lock');
   };
-
-  // regenerate the triangular score default from the current length fields
-  $('btnTriangular').onclick = () => renderScoreTable(triangularScoreTable(
-    clamp(Math.round(Number($('cfg-startingLength').value) || 4), 2, 15),
-    clamp(Math.round(Number($('cfg-maxSnakeLength').value) || 15), 6, 64)));
 
   // placement mode: click cells to build the spawn chain (head → … → tail)
   $('board').addEventListener('click', (ev) => {

@@ -1,156 +1,122 @@
-# GOBBLE · Rules
+# GOBBLE
 
-*A simultaneous-programming snake game for 2–6 players. Everyone programs their moves in secret, then all the snakes move at once. Eat to grow. The longer your snake, the more points it's worth!*
+For 3–6 players. The digital prototype also supports a 2-player test on 8×8.
 
----
+## Goal and scoring
 
-## Components
+First to 30 points. Score immediately when eating: 1 point per segment added, and
+2 points per segment that cannot fit at maximum length 13. Regular food is worth 1
+segment; super and special food are worth 2. At maximum length, regular food scores
+2 and super/special food scores 4. At length 12, a value-2 pickup grows one segment
+and scores 3. Death and the end of the game award no extra points. Finish the current
+simultaneous movement beat when someone reaches 30; highest score wins, ties shared.
+The digital target is adjustable. The printed score track goes to 50.
 
-- **6 × Mini-boards**: 4×4 boards (5.9″ square), one per player. Each has **5 food spots printed on it**, and **4 of the 6 also have a SPECIAL space** (a colourful swirl). Every board's food layout is different, and none of them look the same rotated, so turning a board changes the game. Everything printed is permanent: it never runs out and nothing is ever placed or removed. Printed food is **+1**, and ×2 food comes only from snake food.
-- **8 × Movement tile sets**: 6 movement tiles per player, in the player's colour. (Tile sets exist for 8 colours; the printed set has 6 mini-boards, so print two more boards to play 7–8.)
-- **8 × Personal boost tiles**: every player permanently owns **one boost tile**. It's part of their hand, like the movement tiles, and comes back every round.
-- **1 × Boost stack**: spare "×3" boost tiles, taken at growth milestones. They're all identical, so keep them in a face-up stack. Spent boost tiles go back to the stack.
-- **18 × Special cards**: 9 effects, 2 copies each. Shuffled into a face-down deck; drawn when you cross a **special space**. (Print `gobble-special-cards.pdf` duplex, since fronts and backs alternate.)
-- **8 × Player boards**: ten upright boxes that hold your snake sticks. Take one out each time you grow, and the number under it is your score. Boxes **3, 6 and 10** have a boost icon printed inside, revealed as that stick comes out.
-- **1 × Score track sheet**: a shared 1–50 track with 30 marked in yellow, since that's where the game ends. Every player moves a marker on it, starting off the track at 0.
-- **Snake pieces**: per player, 1 head marker and 13 wooden body sticks in your colour (3 on the board at the start, 10 waiting on your player board).
-- **Snake food**: yellow glass beads, dropped when a snake dies. Worth **×2 food** to whoever eats them.
-- **A 10-second sand timer** (the "panic timer").
+## Print and assemble
 
----
+Print the complete PDF at 100% on Letter paper, single-sided. Cut solid component
+outlines. Join board quadrants A B / C D, making one 10×10 board with one-inch cells.
+For 3–4 players use only the central 8×8 inside the dashed boundary; for 5–6 use all
+10×10. Cut the player kits and cards. Fold each food token on its dotted middle line
+and glue: gold SUPER on one side, purple SPECIAL on the other. Spin a paperclip around
+a pencil on the printed three-sector spinner to randomize death food. Supply scissors,
+glue, pencil, paperclip and a 15-second timer (a phone is fine).
 
-## The goal
-
-Be the first to reach the **target score (default 30 points)**. **You always have points equal to how long your snake has grown.** Every segment you add is a point. It's simplest to move your marker on the score track when your snake dies, but you can move it every time you eat if you prefer; either way the total is the same. Once you're at **maximum length**, every food you eat is worth **2 points**.
-
----
+The kit contains four board quadrants; six player mats; six heads and 72 body pieces;
+36 arrows; six personal and 36 expendable boost markers; six score markers; a 0–50
+score track; 18 special cards (two of each); 100 reversible food tokens (enough for
+every board cell); and a spinner. No other game components are needed.
 
 ## Setup
 
-1. **Build the board:** place one mini-board per player, arranged **as close to an even square as possible** (2 players = a 2×1 strip, 3 = an L, 5 = a P, and so on). Edges with no board beyond them are walls.
-2. **Player setup.** Each player takes their **6 movement tiles**, their **personal boost tile**, their **snake head**, and a **player board**, then fills all ten boxes on the board with their wooden snake sticks. Shuffle the **Special cards** into a face-down deck; leave the spare **boost tiles** in a face-up stack (they're all the same).
-3. **Place each snake** at length **4** (a head plus 3 segments) on any 4 contiguous cells (bends fine) free of snakes and snake food, with **at least one piece touching a corner of any mini-board** (if no corner placement is available at all, place as close to a corner as you can). Placing over printed food is fine, but **you never eat what you cover**.
+Exactly 10 permanent food spots are printed on the board, more concentrated in the
+center. They never run out. Moving onto one feeds you; staying still does not. Food
+covered by a snake is inaccessible. Place special food on numbered starting spots:
+spot 1 for 3 players, spots 1–2 for 4–5, spots 1–3 for 6 (floor of players divided by
+two). These removable tokens do not replenish; the outlines do nothing after eating.
+Shuffle the 18 special cards, leaving room for discards.
 
----
+Take a matching color-and-letter player kit. Set score to 0. Place your head and two
+body pieces on any three contiguous empty cells; bends are allowed. The head faces
+away from its neck. Printed food may be covered but is not eaten during placement;
+removable food and other snakes block placement. Keep ten body pieces on the numbered
+growth spaces on your mat. Start with one personal boost and no expendable boosts.
+Choose the first placer randomly, then place clockwise.
 
-## Playing a round
+## Program and resolve
 
-### 1. Program (in secret)
+Secretly arrange two to six arrows in order, rotated to the directions you want.
+Unused slots are stays. Put a boost marker on an arrow to move three cells instead
+of one. Your one personal boost returns every round; extra boosts are spent when used
+and returned to supply. The first player finished starts the 15-second timer. Lock all
+programs when it expires, then reveal together.
 
-Lay **2 to 6 tiles** face-down in a row in front of you. The left one resolves first.
+Resolve each slot in two phases: boosted arrows first, one simultaneous cell-step at
+a time, then normal arrows together. Nonmoving snakes remain obstacles. For each step,
+lift tails unless growing, check destinations, move surviving heads, then resolve food.
+Never reverse into your neck. Extra growth beyond the first segment stacks behind the
+head and spreads out on later moves. A removable pickup overrides printed food beneath
+it: eat only the pickup this step, revealing the printed food for later visits.
 
-- A **Movement tile** moves your head **1 space** the way it points. Rotate it to aim.
-- A **Boost tile** moves your head **3 spaces** the way it points. It works just like a movement tile, only further. Rotate it to aim. Your personal boost comes back to your hand every round, and spare boost tiles go back to the stack once used.
-- You must program **at least 2** tiles. If you program fewer than 6, your snake simply **stops in place** for the remaining moves.
+A wall or occupied body kills a moving snake. Moving heads entering the same cell kill
+each other; moving into a stationary head kills only the mover. A tail that clears this
+step is safe. Each time you empty growth space 3, 6 or 10 (lengths 6, 9, 13), gain one
+expendable boost. Milestones reset on respawn. Unspent extras survive death; hold at
+most six. There are no printed boost-recharge spaces.
 
-**The panic timer:** the instant the **first** player locks their row, start the **10-second timer**. When it runs out, everyone else must lock **whatever they have** immediately.
+## Food, death and respawn
 
-### 2. Reveal & resolve
+Super food grows two segments. Special food grows two AND draws one special card.
+Remove either after eating. If the deck is empty, reshuffle discards; if all cards are
+held, skip the draw but still grow and score.
 
-Flip all rows face-up. Resolve **one slot at a time**. Within each slot:
+When a snake dies, remove its entire body. Leave food only at its head and tail cells
+from immediately BEFORE the fatal step. Spin separately for each: one of three equal
+sectors makes SPECIAL food (about 33%), the other two SUPER. Never place outside the
+board. Coincident endpoints leave one token. A new drop replaces a removable token
+already there; tokens never stack. Food underneath a surviving snake waits until
+uncovered. Intermediate body cells leave nothing. Keep all points already scored.
 
-1. **Boosts go first.** Every boosting snake runs its full 3-cell slide, cell by cell (boosters move simultaneously with each other). A boost that crashes on the 1st or 2nd cell dies there and doesn't finish.
-2. **Then movement tiles.** Every stepping snake moves 1 cell, all together.
-
-For each move: **tails clear** (lift your last tail piece unless this move grows you) → **heads slide** → **check crashes** → **pick up / eat**.
-
-**Crashes:** you die if you move into a **wall**, into a space **another snake moves into at the same time**, or into a **snake's body or the side of its head**. Heads point a direction, so the side counts just like a body. Whether the other snake is moving makes no difference. Because boosts resolve first, a booster crosses a contested space before a stepping snake reaches it, leaving its body in the way.
-
-### 3. End of the round
-
-There is no upkeep, because the food is printed on the boards. Just **respawn** dead players (see *Dying*) and check for a **winner** (see *Winning*).
-
----
-
-## Food, specials & snake food
-
-When your head enters an uncovered printed spot or a bead of snake food (and you didn't crash):
-
-| You entered | Growth | Also |
-|---|---|---|
-| **Food spot** (printed orange ball) | +1 segment | **+1 point** |
-| **Special space** (printed swirl, on 4 boards) | — | **draw a Special card** |
-| **Snake food** (yellow bead, from a death) | +2 segments | **+2 points** |
-
-**Growth milestones:** the **3rd, 6th and 10th** boxes on your player board have a boost icon printed inside them. The moment you take that stick out, **take a boost tile** from the stack.
-
-- **Printed food and special spaces never deplete.** Eating doesn't remove them; a snake sitting on a spot just blocks it until the cell frees up. The same spot can feed snake after snake.
-- **Snake food is a token**: pick the bead up once eaten and put it back in the supply. A bead sitting on a printed spot covers it (you get the bead, and the spot is available again afterwards).
-- New segments appear **behind the head** (they stack on the gap and unspool as you move). Anything that doesn't grow you resolves like a normal move, with your tail piece filling the gap.
-- Hand limit for spare boost tiles: **6**.
-
-### At maximum length
-
-When the **last stick comes off your player board** your snake stops growing, and every food you eat from then on is worth **2 points** instead (snake food is worth **4**).
-
----
+Respawn next round at length 3 using the setup placement rules. Keep score, held cards
+and unspent extra boosts. If no legal placement exists, wait until a later round.
+Refresh personal boosts and program again.
 
 ## Special cards
 
-Crossing a **swirl** lets you draw one Special card. Each card says when you may play it, so play it whenever that moment comes. Cards that last a round are **discarded at the end of that round**; if the deck runs out, shuffle the discards into a new one.
+Discard cards when played. Different effects may combine; duplicate round effects do
+not stack. Round effects expire before the next programming phase.
 
-If two specials ever collide (same timing, contradictory effects) resolve them in **player order, starting with whoever flipped the timer last**.
+- **Flip Flop — between rounds:** swap head and tail; face away from the new neck.
+- **Whoopsie — before a single unboosted arrow resolves:** rotate that arrow.
+- **Vroom Vroom — while programming:** all boosts move one extra cell this round.
+- **Nom Nom — while programming:** super and special food are worth one extra segment
+  this round, with normal capped scoring.
+- **Bounce — while programming:** prevent your first crash this round. Restore the
+  lifted tail and swap head and tail. Stop this arrow, then continue your program.
+- **Star Power — while programming:** head collisions do not kill you this round unless
+  the other head also has Star Power. Bodies and walls still kill you.
+- **Rev Up — while programming:** gain four expendable boosts, up to the six-boost cap.
+- **Careful Slither — while programming:** you may stop a boost after two cells this
+  round, including a boost extended by Vroom Vroom.
+- **Victory Lap — while programming:** at round end, score your living snake's length;
+  nothing if dead. This card explicitly overrides food-only scoring.
 
-| Card | When | Effect |
-|---|---|---|
-| **Flip Flop** | Between rounds | Swap your head and tail. Your snake now runs the other way. |
-| **Whoopsie** | Before resolving | Rotate one of your single movement tiles before it resolves. |
-| **Vroom Vroom** | While programming | All of your boost tiles move +1 extra space this round. |
-| **Nom Nom** | While programming | Every snake food bead you eat this round grows you +1 extra. |
-| **Bounce** | While programming | If you would crash this round, put your head on your tail instead and keep going. |
-| **Star Power** | While programming | Colliding with another snake's head doesn't kill you this round, unless they also played Star Power. |
-| **Rev Up** | Any time | Take 4 boost tiles from the stack. |
-| **Careful Slither** | While programming | When a boost tile resolves this round you may move only 2 spaces instead of 3. |
-| **Victory Lap** | While programming | At the end of this round, score points equal to your length, or nothing if you are dead. |
+## Digital adaptation
 
----
+Open index.html, choose seats and New game. Click three adjacent cells to place your
+snake, or Auto-place. Program with arrow buttons or arrow keys/WASD; B toggles boost,
+Backspace undoes a slot, and Lock in confirms. Pass-and-play hides each player's program.
+Use special-card controls while programming. Respawn pauses the panic timer.
 
-## Dying
+Whoopsie automatically avoids a fatal single move; Careful Slither automatically stops
+at two only if the next step would crash. These are convenience adaptations of the
+tabletop choices. The simulation round limit uses current scores, without cash-out.
 
-When a snake dies:
+## Revision decisions
 
-1. **Record your score** if you haven't been tracking it as you ate. It's the number under the last box you emptied on your player board (1 through 10), plus 2 for every food you ate at maximum length.
-2. **Drop snake food.** The head leaves the board. Replace **every other body segment** (starting behind the head) with a **yellow bead**, a token worth ×2 food to whoever eats it. Remove the segments in between.
-3. **Reset your player board:** put all ten sticks back in their boxes.
-4. **Respawn** next round: place at length **4** on any 4 contiguous cells free of snakes and snake food, **touching a corner of any mini-board**, or as close to a corner as possible if none are available. You can cover printed spots freely, since you don't eat them.
-
-> Dying costs you nothing you've already earned. It just puts your snake back to the start.
-
----
-
-## Winning
-
-The moment any player reaches **30 points**, the game **ends immediately**. Everyone's score is already up to date, so just compare totals and the **highest wins**.
-
-*Ties:* the tied player with the longest snake wins. If they're still tied, share the victory.
-
----
-
-## Adjustable variables (tune to taste)
-
-| Variable | Default | Notes |
-|---|---|---|
-| Players | 2–6 | One mini-board each |
-| Mini-board size | 4×4 | |
-| Food spots per board | 5 | All +1; every board's layout differs |
-| Special spaces | 1 on 4 of the 6 boards | Printed swirl: draw a Special card |
-| Command slots (cards/round) | 6 | Minimum 2 programmed |
-| Starting length | 4 | Head + 3 segments |
-| Maximum length | 14 | 10 growth steps; then +2 pts per food |
-| Boost distance | 3 cells | |
-| Free boosts per round | 1 | Your personal boost card |
-| Milestone boosts | Boxes 3, 6, 10 | Take a boost tile as that stick comes out |
-| Target score | 30 | First to trigger ends the game |
-| Score track | 1–50 | 30 is marked as the end of the game |
-| Panic timer | 10 seconds | Starts when the first player locks |
-
----
-
-## Quick reference
-
-1. **Program** 2–6 tiles face-down · **movement = 1**, **boost = 3** (your own boost always comes back).
-2. First lock starts the **10-second** timer; everyone locks when it ends.
-3. **Reveal** slot by slot: **boosts slide first**, then all stepping snakes move together. Tails clear, heads slide, check crashes, eat.
-4. **Printed food** grows you +1 and scores **+1 point**, and never runs out; **swirls** draw a **Special card**; **snake food** beads are ×2 food. Boxes 3, 6 and 10 award a boost tile. At **maximum length** every food is worth **2 points**.
-5. **Crash** = death: your points are already yours; leave snake food on every other segment, refill your player board, respawn next round **touching a board corner**.
-6. **First to 30** ends it, and the **highest total wins**.
+Retains the latest local print's length 3 start, length 13 cap and 15-second timer.
+The designer's clarification replaces its death-scoring ladder and 150-point goal
+with immediate scoring and a 30-point goal. Milestones refer to growth spaces 3/6/10
+as on the previous mat. Fixed coordinates, pre-fatal-step endpoints and one-third
+randomization are implementation rulings shared by print and digital. Board data is
+in print/board.json. Two-player digital tests use one starting special food.
