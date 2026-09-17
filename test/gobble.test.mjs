@@ -247,7 +247,7 @@ const sc = await page.evaluate(() => {
     e.playSpecial(A, 'victory-lap');
     const before = A.score;
     e.nextRound();
-    out.vlGain = A.score - before;                      // no food, no points
+    out.vlGain = A.score - before;                      // alive: score current length
   }
   // 9d) Whoopsie auto-rotates a fatal movement tile
   {
@@ -295,7 +295,7 @@ ok(sc.revBank === 4 && sc.vroomX === 4, `Rev Up banks 4 tiles; Vroom Vroom boost
 ok(sc.carefulX === 7 && sc.carefulAlive, `Careful Slither stops the boost at 2 cells instead of hitting the wall (x=${sc.carefulX})`);
 ok(sc.starA && !sc.starB && sc.starAx === 5 && sc.star2, 'Star Power: lone holder survives the head-on; mutual holders both die');
 ok(sc.bounceAlive && sc.bounceHead === '3,2' && sc.bounceFacing === 'right', `Bounce: head lands on the tail and lives (${sc.bounceHead} facing ${sc.bounceFacing})`);
-ok(sc.flipHead === '3,2' && sc.flipFacing === 'right' && sc.vlGain === 0, `Flip Flop reverses; Victory Lap without food pays +${sc.vlGain}`);
+ok(sc.flipHead === '3,2' && sc.flipFacing === 'right' && sc.vlGain === 4, `Flip Flop reverses; surviving Victory Lap pays +${sc.vlGain}`);
 ok(sc.whoopsAlive && sc.whoopsUsed && sc.whoopsDiscard, 'Whoopsie auto-rotates a fatal tile and is spent');
 ok(sc.recycled, 'the Special deck reshuffles its discards when empty');
 ok(sc.target === 30 && sc.panic === 15 && sc.start === 3,

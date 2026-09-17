@@ -1,4 +1,4 @@
-# September nested board and food-only scoring
+# September nested board and immediate food scoring
 
 - Matched the reference sheet: white 6×6 for 2 players, light gray 8×8 for 3–4,
   and the dark gray 116-cell shape within 12×12 for 5–6. Missing corners are walls.
@@ -8,8 +8,8 @@
 - All spawning requires any segment to touch an outer edge, including the stepped
   perimeter. Death drops still use only head/tail, independently one-third special.
 - The game, food tokens, and new printable card backs share the supplied special icon.
-- Victory Lap now doubles food points during its round, replacing the old length
-  award. All points are awarded while eating; death and round/game end add nothing.
+- Victory Lap retains its survival prediction: score current length at round end
+  if alive, nothing if dead. Food scores immediately; death adds nothing.
 - Integrates the previously local current-rules update below into the published game.
 
 # Current rules and complete print-and-play

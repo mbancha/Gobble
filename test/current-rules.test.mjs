@@ -71,17 +71,26 @@ try {
    const {e,p}=eat(len);check(p.body.length===len+gain&&p.score===score&&p.specials.length===1&&!e.food.size,'special food growth/score/draw/consumption');
   }
   const nom=eat(13,'special',true);check(nom.p.score===6&&nom.p.specials.length===1,'Nom Nom applies to special food');
-  for(const [len,value,expected] of [[3,1,2],[3,2,4],[12,2,6],[13,2,8]]) {
+  for(const [len,value,expected] of [[3,1,1],[3,2,2],[12,2,3],[13,2,4]]) {
    const e=make();e.spots.clear();e.food.clear();
    const p=put(e,[[3,3],...Array.from({length:len-1},()=>[2,3])]);
    p.specials=['victory-lap'];e.playSpecial(p,'victory-lap');
    e.food.set(K(4,3),{kind:'bounty',value});p.commands=[{dir:'right'}];
    e.beginTick(0);while(e.stepTick().more){}e.finishTick();
-   check(p.score===expected,'Victory Lap doubles immediate food points');
-   const scored=p.score;e.nextRound();check(p.score===scored,'round end awards nothing');
+   check(p.score===expected,'Victory Lap leaves immediate food points unchanged');
+   const scored=p.score+p.body.length;e.nextRound();check(p.score===scored,'survival awards current length at round end');
+   e.nextRound();check(p.score===scored,'Victory Lap only pays once');
    e.killSnake(p,'wall',null,[],{x:4,y:3});check(p.score===scored,'death awards nothing');
    e.endGame('roundcap');check(p.score===scored,'end game awards nothing');
   }
+  const deadLap=make();deadLap.spots.clear();deadLap.food.clear();
+  p=put(deadLap,[[0,2],[1,2],[2,2]]);p.score=7;
+  p.specials=['victory-lap'];deadLap.playSpecial(p,'victory-lap');
+  deadLap.killSnake(p,'wall',null,[],{x:-1,y:2});deadLap.nextRound();
+  check(p.score===7,'dead Victory Lap holder scores nothing');
+  const lapWin=make();p=put(lapWin,[[0,2],[1,2],[2,2]]);p.score=28;
+  p.specials=['victory-lap'];lapWin.playSpecial(p,'victory-lap');lapWin.nextRound();
+  check(lapWin.gameOver&&p.score===31,'Victory Lap can win at round end');
   check(nom.p.boosts===0&&eat(13,'bounty').p.boosts===0,'capped feeding never repeats the last growth milestone');
   for(const len of [5,8,12]){const {p}=eat(len,'bounty');check(p.boosts===1,'each growth milestone awards an extra');}
   const milestone=eat(12,'bounty');milestone.p.boosts=4;milestone.e.killSnake(milestone.p,'wall',null,[],{x:0,y:0});check(milestone.p.boosts===4,'unspent extras survive death');

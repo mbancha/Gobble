@@ -384,7 +384,7 @@ const SPECIALS = [
   { slug: 'star-power',      name: 'Star Power',      icon: '⭐' },
   { slug: 'rev-up',          name: 'Rev Up',          icon: '⏫' },
   { slug: 'careful-slither', name: 'Careful Slither', icon: '🐌' },
-  { slug: 'victory-lap',     name: 'Victory Lap',     icon: '🏁', hint: 'Double points from food eaten this round. No round-end award.' },
+  { slug: 'victory-lap',     name: 'Victory Lap',     icon: '🏁', hint: 'At round end, score your length if still alive. Nothing if dead.' },
 ];
 const SPECIAL_BY_SLUG = Object.fromEntries(SPECIALS.map((sp) => [sp.slug, sp]));
 
@@ -964,14 +964,13 @@ class Engine {
       // You are worth points equal to how far your snake has grown: every
       // segment gained scores 1 point on the spot. Dying neither adds nor
       // removes anything — you already have them.
-      const multiplier = p.fx['victory-lap'] ? 2 : 1;
       if (m.growUnits > 0) {
-        const pts = m.growUnits * multiplier;
+        const pts = m.growUnits;
         p.score += pts;
         events.push({ t: 'grow', seat: p.seat, pts, at });
       }
       if (pointUnits > 0) {
-        const pts = pointUnits * this.cfg.maxLengthFoodBonus * multiplier;
+        const pts = pointUnits * this.cfg.maxLengthFoodBonus;
         p.score += pts;
         this.stats.bonusPoints += pts;
         if (pts > 0) events.push({ t: 'bonus', seat: p.seat, pts, at });
@@ -1026,7 +1025,18 @@ class Engine {
    */
   nextRound() {
     const events = [];
-    // Food is the only scoring event, including while Victory Lap is active.
+    // Victory Lap rewards predicting survival through the entire round.
+    if (this.gameOver) return { events };
+    for (const p of this.players) {
+      if (p.fx['victory-lap']) {
+        delete p.fx['victory-lap'];
+        if (p.alive) {
+          const pts = p.body.length;
+          p.score += pts;
+          events.push({ t: 'victorylap', seat: p.seat, pts });
+        }
+      }
+    }
     if (this.players.some((p) => p.score >= this.cfg.pointsToWin)) {
       events.push(...this.endGame('score'));
       return { events };
@@ -2364,6 +2374,11 @@ function consumeEvents(events) {
     else if (ev.t === 'flip') {
       const p = e.players[ev.seat];
       log(`🔁 ${esc(p.name)} flip-flopped: head and tail swapped`, p.color);
+    }
+    else if (ev.t === 'victorylap') {
+      const p = e.players[ev.seat];
+      sounds.add('cashout');
+      log(`🏁 ${esc(p.name)} survived the round: Victory Lap scores +${ev.pts}`, p.color);
     }
     else if (ev.t === 'milestone') {
       const p = e.players[ev.seat];

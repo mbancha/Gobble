@@ -106,9 +106,9 @@ not stack. Round effects expire before the next programming phase.
 - **Rev Up — while programming:** gain four expendable boosts, up to the six-boost cap.
 - **Careful Slither — while programming:** you may stop a boost after two cells this
   round, including a boost extended by Vroom Vroom.
-- **Victory Lap — while programming:** double the points from every food you eat
-  this round, including maximum-length bonuses. Growth is unchanged. No food means
-  no points; there is no award at round end or on death.
+- **Victory Lap — while programming:** at the end of this round, score points equal
+  to your current length if you are still alive; score nothing if dead. Food scores
+  normally. This card is the exception to scoring only when eating.
 
 ## Digital adaptation
 
