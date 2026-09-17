@@ -1,18 +1,19 @@
 # Gobble
 
-A simultaneous-programming snake game for 3–6 players, with a self-contained digital
+A simultaneous-programming snake game for 2–6 players, with a self-contained digital
 prototype and one complete print-and-play package.
 
 ## Play
 
 Open `index.html` in a browser; it works offline without downloads or a server.
 Choose seats, start a game, place a three-segment snake, and program your arrows.
-The prototype supports human/bot mixtures and pass-and-play; a two-player test mode
-uses the smaller board. Full rules and digital convenience adaptations are in
+The prototype supports human/bot mixtures and pass-and-play. Full rules and digital convenience adaptations are in
 [RULES.md](RULES.md).
 
-- 3–4 players: central 8×8. 5–6: full 10×10.
-- Exactly 10 permanent printed food spots; one starting special food per two players.
+- 2 players: white 6×6. 3–4: white + light gray 8×8. 5–6: all 116 colored cells
+  in the shaped 12×12 footprint; cut-out corners are walls.
+- 12 / 20 / 28 permanent food spots by board size; exactly one central starting special food.
+- Spawn on any three contiguous empty cells with at least one segment on an outer edge.
 - One personal boost per round, plus expendable boosts at growth spaces 3, 6 and 10.
 - Death leaves food only at the pre-step head and tail, each independently one-third
   special. Special food grows two and draws a card; super food grows two.
@@ -22,9 +23,9 @@ uses the smaller board. Full rules and digital convenience adaptations are in
 
 ## Print and play
 
-Print [the complete current kit](output/pdf/gobble-print-and-play.pdf): **17 Letter
+Print [the complete current kit](output/pdf/gobble-print-and-play.pdf): **19 Letter
 pages, single-sided, at 100%**. It includes rules, the four-piece board, all six player
-kits including paper snakes, special cards, reversible food tokens, a 0–50 scoreboard
+kits including paper snakes, special cards and matching backs, reversible food tokens, a 0–50 scoreboard
 and a spinner. Only crafting supplies and a timer are needed. All obsolete print
 versions and preview files have been removed.
 
@@ -33,6 +34,7 @@ versions and preview files have been removed.
 ```sh
 npm ci
 npm run build:css
+npm run build:assets
 npm test
 npm run test:browser
 python -m pip install -r print/requirements.txt

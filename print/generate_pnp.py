@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT/'output/pdf/gobble-print-and-play.pdf'
 OUT.parent.mkdir(parents=True, exist_ok=True)
 BOARD = json.loads((ROOT/'print/board.json').read_text())
+SPECIAL_ICON = str(ROOT/'print/assets/special-icon.png')
 W,H=612,792
 INK=colors.HexColor('#172b38'); TEAL=colors.HexColor('#137d78')
 GOLD=colors.HexColor('#f2ba4b'); PURPLE=colors.HexColor('#8063bd')
@@ -35,7 +36,7 @@ for block in rules.split('\n\n'):
     elif block.startswith('## '): story.append(Paragraph(markup(block[3:]),styles['Heading2']))
     elif block.startswith('- '):
         for item in re.split(r'\n- ',block[2:]): story.extend([Paragraph(markup(item.replace('\n',' ')),styles['BodyText']),Spacer(1,5)])
-    else: story.extend([Paragraph(markup(block.replace('\n',' ')),styles['BodyText']),Spacer(1,7)])
+    else: story.extend([Paragraph(markup(block.replace('\n',' ')),styles['BodyText']),Spacer(1,4)])
 rulebuf=BytesIO()
 def foot(c,d):
     c.setFont('Helvetica',8);c.setFillColor(INK)
@@ -56,16 +57,21 @@ def page(title,sub):
     text(36,22,'GOBBLE / Print at 100% / Single-sided / Cut solid outlines',8)
 def finish():c.showPage()
 
+def special_icon(x,y,size):
+    c.drawImage(SPECIAL_ICON,x,y,size,size,mask='auto',preserveAspectRatio=True,anchor='c')
+
 # The four sheets assemble one board, never four independent mini-boards.
 for q in range(4):
-    ox=(q%2)*5;oy=(q//2)*5
+    ox=(q%2)*6;oy=(q//2)*6
     page('GOBBLE | Board '+chr(65+q),'Join A B above C D. Cut the outer square; match the cell labels.')
-    x0,y0=126,225
-    for yy in range(5):
-      for xx in range(5):
-        x,y=ox+xx,oy+yy;px=x0+xx*72;py=y0+(4-yy)*72
-        outer=x in (0,9) or y in (0,9)
-        box(px,py,72,72,colors.HexColor('#e4e8eb') if outer else colors.HexColor('#fffdf4'))
+    x0,y0=90,220
+    c.setStrokeColor(INK);c.setDash(3,3);c.rect(x0,y0,432,432);c.setDash()
+    for yy in range(6):
+      for xx in range(6):
+        x,y=ox+xx,oy+yy;px=x0+xx*72;py=y0+(5-yy)*72
+        zone=BOARD['zones'][y][x]
+        if zone=='.': continue
+        box(px,py,72,72,colors.HexColor({'2':'#ffffff','3':'#efefef','5':'#d9d9d9'}[zone]))
         text(px+4,py+59,f'{x+1},{y+1}',7)
         if [x,y] in BOARD['regularFood']:
           c.setFillColor(GOLD);c.circle(px+36,py+34,17,fill=1,stroke=0)
@@ -73,16 +79,11 @@ for q in range(4):
           center(px+36,py+9,'FOOD',7)
         if [x,y] in BOARD['specialFood']:
           n=BOARD['specialFood'].index([x,y])+1
-          c.setStrokeColor(PURPLE);c.setDash(2,2);c.circle(px+36,py+34,22,stroke=1,fill=0);c.setDash()
-          center(px+36,py+37,'START '+str(n),8,PURPLE,True)
-          center(px+36,py+25,'SPECIAL',8,PURPLE)
-        c.setStrokeColor(TEAL);c.setLineWidth(2);c.setDash(5,3)
-        if x==1:c.line(px,py,px,py+72)
-        if x==8:c.line(px+72,py,px+72,py+72)
-        if y==1:c.line(px,py+72,px+72,py+72)
-        if y==8:c.line(px,py,px+72,py)
-        c.setDash()
-    para(100,175,420,'3-4 players: stay inside the dashed teal 8 x 8 boundary.\n5-6 players: use the full 10 x 10 including the gray border.',12)
+          c.setStrokeColor(PURPLE);c.setDash(2,2);c.circle(px+36,py+40,22,stroke=1,fill=0);c.setDash()
+          special_icon(px+21,py+25,30)
+          center(px+36,py+10,'START '+str(n),8,PURPLE,True)
+    para(90,180,432,'**2 players:** white 6 x 6. **3-4:** white + light gray 8 x 8. **5-6:** all colored cells, including the dark gray arms. Blank cut-out corners are outside the board.',11)
+    para(90,115,432,'Join the four 6-inch squares. Each cell is one inch. Place one SPECIAL token on START 1 in every game. Printed FOOD spots never run out.',10)
     finish()
 
 for name,letter,col in PLAYERS:
@@ -136,6 +137,16 @@ for copy in range(2):
       text(x+10,y+12,'GOBBLE / SPECIAL',8,PURPLE)
     finish()
 
+# Matching backs: cut and glue to fronts, preserving single-sided printing.
+for copy in range(2):
+    page('GOBBLE | Special card backs',f'Copy {copy+1} of 2 / Cut and glue to special-card fronts')
+    for i in range(9):
+      x=36+(i%3)*182;y=500-(i//3)*220
+      box(x,y,174,207)
+      special_icon(x+42,y+65,90)
+      center(x+87,y+40,'SPECIAL',14,PURPLE,True)
+    finish()
+
 # 100 fold-over tokens, two sheets of 50. One token can show either face.
 for sheet in range(2):
     page('GOBBLE | Food tokens',f'Sheet {sheet+1} of 2 / Cut rectangles, fold dotted centers, glue backs together')
@@ -145,7 +156,7 @@ for sheet in range(2):
       c.setFillColor(colors.HexColor('#e7ddf5'));c.rect(x+48,y,48,48,fill=1,stroke=0)
       c.setStrokeColor(INK);c.rect(x,y,96,48,fill=0,stroke=1)
       center(x+24,y+30,'SUPER',7,INK,True);center(x+24,y+11,'2',17,INK,True)
-      center(x+72,y+30,'SPECIAL',7,PURPLE,True);center(x+72,y+16,'2 + CARD',8,PURPLE,True)
+      special_icon(x+61,y+20,22);center(x+72,y+7,'2 + CARD',8,PURPLE,True)
       c.setDash(2,2);c.line(x+48,y,x+48,y+48);c.setDash()
     text(36,47,'Each final token is 2/3 inch square. Food value means segments; apply capped scoring.',9)
     finish()
@@ -170,6 +181,6 @@ writer=PdfWriter()
 for source in [rulebuf,buf]:
     source.seek(0)
     for p in PdfReader(source).pages:writer.add_page(p)
-writer.add_metadata({'/Title':'Gobble - Complete Print and Play','/Author':'Gobble','/Subject':'Current 10x10 / 8x8 rules and complete components'})
+writer.add_metadata({'/Title':'Gobble - Complete Print and Play','/Author':'Gobble','/Subject':'2-6 players / Nested 6x6, 8x8 and shaped 12x12 board'})
 with OUT.open('wb') as f:writer.write(f)
 print(f'{OUT}: {len(writer.pages)} pages')

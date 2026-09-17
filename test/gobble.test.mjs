@@ -57,8 +57,9 @@ const sc = await page.evaluate(() => {
   const K = (x, y) => (y << 6) | x;
   const mkRng = (s = 42) => { let a = s; return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
   const mk = (over = {}) => {
-    const e = new Engine(makeConfig({ tileSize: 6, playerCount: 2, ...over }),
-      [{ name: 'A', isBot: true }, { name: 'B', isBot: true }], mkRng());
+    // These collision fixtures use an 8x8 board; other seats remain unplaced.
+    const e = new Engine(makeConfig({ playerCount: 4, ...over }),
+      ['A','B','C','D'].map(name=>({name,isBot:true})), mkRng());
     e.setup(); e.spots.clear(); e.food.clear();
     return e;
   };
@@ -246,7 +247,7 @@ const sc = await page.evaluate(() => {
     e.playSpecial(A, 'victory-lap');
     const before = A.score;
     e.nextRound();
-    out.vlGain = A.score - before;                      // +4 (length)
+    out.vlGain = A.score - before;                      // no food, no points
   }
   // 9d) Whoopsie auto-rotates a fatal movement tile
   {
@@ -284,9 +285,9 @@ ok(sc.contGrow === 1 && sc.contMax === 3 && sc.contDeath === 0,
    `continuous scoring: +1 per segment, +2 per food at max (${sc.contGrow}→${sc.contMax}), dying adds ${sc.contDeath}`);
 ok(sc.msLen === 10 && sc.msBoosts === 2,
    `milestones at the 3rd and 6th growth step gave ${sc.msBoosts} boost tiles by length ${sc.msLen}`);
-ok(sc.plFour && sc.plCorner && sc.plInterior && sc.plBent && sc.plOverSpot && sc.plBlocked && sc.plGap && sc.plSmart,
-   'placement: configured 4 cells, no corner requirement, spots coverable, snake food blocks, smart placement legal');
-ok(sc.geoWH === '8x8' && sc.geoCells === 64 && sc.geoHole && sc.geoCorners === 4 && sc.geoFood === 10 && sc.geoSpecial === 1,
+ok(sc.plFour && sc.plCorner && !sc.plInterior && sc.plBent && sc.plOverSpot && sc.plBlocked && sc.plGap && sc.plSmart,
+   'placement: requires an edge, not a corner; spots coverable, snake food blocks, smart placement legal');
+ok(sc.geoWH === '8x8' && sc.geoCells === 64 && sc.geoHole && sc.geoCorners === 4 && sc.geoFood === 20 && sc.geoSpecial === 1,
    `geometry: 3 players → full 8x8 (${sc.geoWH}, ${sc.geoCells} cells, ${sc.geoFood} food, ${sc.geoSpecial} special)`);
 ok(sc.bpBooster && sc.bpStepper, 'boost priority: the booster claims the contested cell, the stepper dies');
 ok(sc.fbX === 4 && sc.fbX2 === 7, `free boost: 1/round, extras downgrade, refreshes (x=${sc.fbX}→${sc.fbX2})`);
@@ -294,7 +295,7 @@ ok(sc.revBank === 4 && sc.vroomX === 4, `Rev Up banks 4 tiles; Vroom Vroom boost
 ok(sc.carefulX === 7 && sc.carefulAlive, `Careful Slither stops the boost at 2 cells instead of hitting the wall (x=${sc.carefulX})`);
 ok(sc.starA && !sc.starB && sc.starAx === 5 && sc.star2, 'Star Power: lone holder survives the head-on; mutual holders both die');
 ok(sc.bounceAlive && sc.bounceHead === '3,2' && sc.bounceFacing === 'right', `Bounce: head lands on the tail and lives (${sc.bounceHead} facing ${sc.bounceFacing})`);
-ok(sc.flipHead === '3,2' && sc.flipFacing === 'right' && sc.vlGain === 4, `Flip Flop reverses; Victory Lap pays +${sc.vlGain}`);
+ok(sc.flipHead === '3,2' && sc.flipFacing === 'right' && sc.vlGain === 0, `Flip Flop reverses; Victory Lap without food pays +${sc.vlGain}`);
 ok(sc.whoopsAlive && sc.whoopsUsed && sc.whoopsDiscard, 'Whoopsie auto-rotates a fatal tile and is spent');
 ok(sc.recycled, 'the Special deck reshuffles its discards when empty');
 ok(sc.target === 30 && sc.panic === 15 && sc.start === 3,
@@ -323,7 +324,7 @@ const inv = await page.evaluate(() => {
           }
         }
         const food = [...e.spots.values()].filter((f) => f.kind === 'food').length;
-        if (food !== 10)
+        if (food !== (cfg.playerCount===2?12:cfg.playerCount<=4?20:28))
           problems.push(`${where}: printed food changed`);
         for (const f of e.food.values()) if (!['bounty','special'].includes(f.kind)) problems.push(`${where}: stray pickup`);
         if (e.players.some((p) => p.score < 0)) problems.push(`${where}: negative score`);

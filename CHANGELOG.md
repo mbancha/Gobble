@@ -1,3 +1,17 @@
+# September nested board and food-only scoring
+
+- Matched the reference sheet: white 6×6 for 2 players, light gray 8×8 for 3–4,
+  and the dark gray 116-cell shape within 12×12 for 5–6. Missing corners are walls.
+- Doubled the proposed food density to 12/20/28 fixed spots and one removable special
+  food in the central four cells for every player count.
+- Updated the engine, bot bounds, board rendering, printable quadrants and rules.
+- All spawning requires any segment to touch an outer edge, including the stepped
+  perimeter. Death drops still use only head/tail, independently one-third special.
+- The game, food tokens, and new printable card backs share the supplied special icon.
+- Victory Lap now doubles food points during its round, replacing the old length
+  award. All points are awarded while eating; death and round/game end add nothing.
+- Integrates the previously local current-rules update below into the published game.
+
 # Current rules and complete print-and-play
 
 - Consolidated the latest local physical-alpha work into RULES.md and the new complete

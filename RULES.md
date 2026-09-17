@@ -1,6 +1,6 @@
 # GOBBLE
 
-For 3–6 players. The digital prototype also supports a 2-player test on 8×8.
+For 2–6 players.
 
 ## Goal and scoring
 
@@ -15,29 +15,36 @@ The digital target is adjustable. The printed score track goes to 50.
 ## Print and assemble
 
 Print the complete PDF at 100% on Letter paper, single-sided. Cut solid component
-outlines. Join board quadrants A B / C D, making one 10×10 board with one-inch cells.
-For 3–4 players use only the central 8×8 inside the dashed boundary; for 5–6 use all
-10×10. Cut the player kits and cards. Fold each food token on its dotted middle line
+outlines. Join board quadrants A B / C D, making a 12×12 footprint with one-inch cells.
+For 2 players use the white 6×6 center. For 3–4 use white plus light gray (8×8).
+For 5–6 use all 116 colored cells, including the dark gray arms. The blank cut-out
+corners are outside the board and act as walls. Cut the player kits and cards.
+Fold each food token on its dotted middle line
 and glue: gold SUPER on one side, purple SPECIAL on the other. Spin a paperclip around
 a pencil on the printed three-sector spinner to randomize death food. Supply scissors,
 glue, pencil, paperclip and a 15-second timer (a phone is fine).
 
 The kit contains four board quadrants; six player mats; six heads and 72 body pieces;
 36 arrows; six personal and 36 expendable boost markers; six score markers; a 0–50
-score track; 18 special cards (two of each); 100 reversible food tokens (enough for
-every board cell); and a spinner. No other game components are needed.
+score track; 18 special cards (two of each), with matching backs to cut and glue;
+100 reversible food tokens (enough for
+normal play); and a spinner. No other game components are needed.
 
 ## Setup
 
-Exactly 10 permanent food spots are printed on the board, more concentrated in the
-center. They never run out. Moving onto one feeds you; staying still does not. Food
-covered by a snake is inaccessible. Place special food on numbered starting spots:
-spot 1 for 3 players, spots 1–2 for 4–5, spots 1–3 for 6 (floor of players divided by
-two). These removable tokens do not replenish; the outlines do nothing after eating.
+Permanent food spots are printed across the zones, more concentrated in the center:
+12 accessible spots for 2 players, 20 for 3–4, and 28 for 5–6. They never run out.
+Moving onto one feeds you; staying still does not. Food covered by a snake is
+inaccessible. Place exactly one special food on START 1, one of the four central
+cells, for every player count. This removable token does not replenish; its outline
+does nothing after eating.
 Shuffle the 18 special cards, leaving room for discards.
 
 Take a matching color-and-letter player kit. Set score to 0. Place your head and two
-body pieces on any three contiguous empty cells; bends are allowed. The head faces
+body pieces on any three contiguous empty cells with at least one segment touching
+an outer edge of the active board. The head, middle or tail may touch; a corner is
+not required. On the larger board the stepped perimeter counts as an outer edge.
+Bends are allowed. The head faces
 away from its neck. Printed food may be covered but is not eaten during placement;
 removable food and other snakes block placement. Keep ten body pieces on the numbered
 growth spaces on your mat. Start with one personal boost and no expendable boosts.
@@ -67,6 +74,7 @@ most six. There are no printed boost-recharge spaces.
 ## Food, death and respawn
 
 Super food grows two segments. Special food grows two AND draws one special card.
+Special food uses the multicolored icon printed on the backs of the special cards.
 Remove either after eating. If the deck is empty, reshuffle discards; if all cards are
 held, skip the draw but still grow and score.
 
@@ -98,12 +106,14 @@ not stack. Round effects expire before the next programming phase.
 - **Rev Up — while programming:** gain four expendable boosts, up to the six-boost cap.
 - **Careful Slither — while programming:** you may stop a boost after two cells this
   round, including a boost extended by Vroom Vroom.
-- **Victory Lap — while programming:** at round end, score your living snake's length;
-  nothing if dead. This card explicitly overrides food-only scoring.
+- **Victory Lap — while programming:** double the points from every food you eat
+  this round, including maximum-length bonuses. Growth is unchanged. No food means
+  no points; there is no award at round end or on death.
 
 ## Digital adaptation
 
-Open index.html, choose seats and New game. Click three adjacent cells to place your
+Open index.html, choose seats and New game. Click three adjacent cells, at least one
+touching an outer edge, to place your
 snake, or Auto-place. Program with arrow buttons or arrow keys/WASD; B toggles boost,
 Backspace undoes a slot, and Lock in confirms. Pass-and-play hides each player's program.
 Use special-card controls while programming. Respawn pauses the panic timer.
@@ -119,4 +129,5 @@ The designer's clarification replaces its death-scoring ladder and 150-point goa
 with immediate scoring and a 30-point goal. Milestones refer to growth spaces 3/6/10
 as on the previous mat. Fixed coordinates, pre-fatal-step endpoints and one-third
 randomization are implementation rulings shared by print and digital. Board data is
-in print/board.json. Two-player digital tests use one starting special food.
+in print/board.json. The nested board follows the designer's September layout, with
+one central starting special food for every player count.

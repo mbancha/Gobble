@@ -42,7 +42,16 @@ try {
   if(await page.locator('#btnRespawn').isVisible())await page.locator('#btnRespawn').click();
   if(await page.locator('#btnAutoPlace').isVisible())await page.locator('#btnAutoPlace').click();
  }
- await page.waitForFunction(()=>Gobble.LIVE.engine.round===4&&Gobble.LIVE.roundStarted&&Gobble.LIVE.currentHuman!==null&&!Gobble.LIVE.placing&&document.querySelector('#countdownOverlay').classList.contains('hidden'));
+ // The round counter advances before the respawn UI finishes appearing.
+ // Keep servicing placement instead of waiting passively behind its prompt.
+ const readyBy=Date.now()+20000;
+ while(true) {
+  if(await page.locator('#btnRespawn').isVisible())await page.locator('#btnRespawn').click();
+  if(await page.locator('#btnAutoPlace').isVisible())await page.locator('#btnAutoPlace').click();
+  if(await page.evaluate(()=>Gobble.LIVE.engine.round===4&&Gobble.LIVE.roundStarted&&Gobble.LIVE.currentHuman!==null&&!Gobble.LIVE.placing&&document.querySelector('#countdownOverlay').classList.contains('hidden')))break;
+  if(Date.now()>readyBy)throw Error('Round four unavailable: '+await page.evaluate(()=>JSON.stringify({round:Gobble.LIVE.engine.round,placing:Gobble.LIVE.placing,human:Gobble.LIVE.currentHuman,phase:Gobble.LIVE.phase})));
+  await page.waitForTimeout(50);
+ }
  await page.locator('#btnLock').waitFor({state:'visible'});
  await page.waitForTimeout(250);
  await page.screenshot({path:fileURLToPath(new URL('../artifacts/desktop-round-four.png',import.meta.url)),fullPage:true});
@@ -54,8 +63,15 @@ try {
  await page.locator('#cfg-playerCount').fill('6');await page.locator('#btnNewGame').click();await page.locator('#btnAutoPlace').click();
  await page.waitForFunction(()=>Gobble.LIVE.roundStarted&&!Gobble.LIVE.placing&&document.querySelector('#countdownOverlay').classList.contains('hidden'));
  await page.waitForTimeout(250);
- assert.equal(await page.evaluate(()=>Gobble.LIVE.engine.W),10);
+ assert.equal(await page.evaluate(()=>Gobble.LIVE.engine.W),12);
+ assert.equal(await page.evaluate(()=>Gobble.LIVE.engine.valid.size),116);
  await page.screenshot({path:fileURLToPath(new URL('../artifacts/desktop-six-players.png',import.meta.url)),fullPage:true});
  assert.deepEqual(errors,[]);
- console.log('GUI journey passed:',JSON.stringify(outcome),'plus six-player 10x10 setup; no page errors');
+ await page.locator('#cfg-playerCount').fill('2');await page.locator('#btnNewGame').click();await page.locator('#btnAutoPlace').click();
+ await page.waitForFunction(()=>Gobble.LIVE.roundStarted&&!Gobble.LIVE.placing&&document.querySelector('#countdownOverlay').classList.contains('hidden'));
+ assert.equal(await page.evaluate(()=>Gobble.LIVE.engine.W),6);
+ assert.equal(await page.evaluate(()=>Gobble.LIVE.engine.food.size),1);
+ await page.screenshot({path:fileURLToPath(new URL('../artifacts/desktop-two-players.png',import.meta.url)),fullPage:true});
+ assert.deepEqual(errors,[]);
+ console.log('GUI journey passed:',JSON.stringify(outcome),'plus six-player shaped board and two-player 6x6 setup; no page errors');
 }finally{await browser.close()}

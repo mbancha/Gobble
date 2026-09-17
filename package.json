@@ -4,8 +4,9 @@
   "type": "module",
   "scripts": {
     "build:css": "node build/build-css.mjs",
+    "build:assets": "node build/assets.mjs",
     "print": "node build/print.mjs",
-    "test": "node build/build-css.mjs --check && node test/current-rules.test.mjs && node test/gobble.test.mjs",
+    "test": "node build/assets.mjs --check && node build/build-css.mjs --check && node test/current-rules.test.mjs && node test/gobble.test.mjs",
     "test:browser": "node test/journey.mjs",
     "test:print": "node build/print.mjs --test"
   },

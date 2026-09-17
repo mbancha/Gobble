@@ -103,7 +103,8 @@
 
       <section aria-label="Quick rules" class="text-xs text-slate-300 space-y-1.5">
         <h3 class="font-bold text-emerald-400">Quick rules</h3>
-        <p>Orange food stays printed. Gold super food: 2 growth. Purple special food: 2 growth + a card. Pickups disappear when eaten.</p>
+        <p>2 players: white center. 3–4: add light gray. 5–6: add dark gray arms. Start with one central special food.</p>
+        <p>Orange food stays printed. Gold super food: 2 growth. Multicolored special food: 2 growth + a card. Pickups disappear when eaten.</p>
         <p>Score 1 per segment gained, or 2 per segment that cannot fit. Death keeps your score and drops food at head and tail only.</p>
         <p>One personal boost each round. Growth spaces 3, 6 and 10 grant expendable extras.</p>
       </section>
@@ -157,7 +158,7 @@
             <div class="text-center space-y-4 fade-in">
               <div class="text-5xl">💀</div>
               <div id="respawnText" class="text-xl font-bold"></div>
-              <p class="text-sm text-slate-400 max-w-xs mx-auto">Place a new snake: 3 contiguous empty cells anywhere on the board.
+              <p class="text-sm text-slate-400 max-w-xs mx-auto">Place 3 contiguous empty cells with at least one segment touching an outer edge.
                 The panic timer is paused while you place.</p>
               <button id="btnRespawn" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg px-6 py-2.5">🐣 Respawn</button>
             </div>
@@ -295,7 +296,7 @@ const CAUSE_LABELS = { wall: 'Wall crash', head: 'Head-to-head', body: 'Body cra
 
 const CONFIG_FIELDS = [
   // ── board & players ──
-  { id: 'playerCount',         label: 'Players',                 min: 2,  max: 6,   def: 4,   group: 'Board & players', hint: '2–4 players: 8×8; 5–6 players: 10×10' },
+  { id: 'playerCount',         label: 'Players',                 min: 2,  max: 6,   def: 4,   group: 'Board & players', hint: '2: white 6×6; 3–4: light gray 8×8; 5–6: full shaped board' },
   { id: 'startingLength',      label: 'Starting length',         min: 2,  max: 15,  def: 3,   group: 'Board & players', hint: 'Segments at spawn (head + 2)' },
   // ── movement & boost ──
   { id: 'commandSlots',        label: 'Command slots',           min: 2,  max: 8,   def: 6,   group: 'Movement & boost', hint: 'Cards programmed per round (min 2)' },
@@ -383,9 +384,14 @@ const SPECIALS = [
   { slug: 'star-power',      name: 'Star Power',      icon: '⭐' },
   { slug: 'rev-up',          name: 'Rev Up',          icon: '⏫' },
   { slug: 'careful-slither', name: 'Careful Slither', icon: '🐌' },
-  { slug: 'victory-lap',     name: 'Victory Lap',     icon: '🏁' },
+  { slug: 'victory-lap',     name: 'Victory Lap',     icon: '🏁', hint: 'Double points from food eaten this round. No round-end award.' },
 ];
 const SPECIAL_BY_SLUG = Object.fromEntries(SPECIALS.map((sp) => [sp.slug, sp]));
+
+// special-icon:start
+const SPECIAL_FOOD_IMAGE = new Image();
+SPECIAL_FOOD_IMAGE.src = 'data:image/png;base64,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';
+// special-icon:end
 
 /* ════════════════════════════════════════════════════════════════════════
    §2 EVEN-SPREAD SAMPLING (used for each mini-board's printed food layout)
@@ -498,18 +504,34 @@ class Engine {
       locked: false,
     }));
 
-    // Full printed board; smaller games use its central 8×8 area.
-    const size = seats.length >= 5 ? 10 : 8;
-    const offset = size === 8 ? 1 : 0;
+    // Nested zones match the designer's sheet. Dots are outside the board.
+    // Keep these data synchronized with print/board.json (tested).
+    const zones = [
+      '....5555....', '.5555555555.', '.5333333335.', '.5322222235.',
+      '553222222355', '553222222355', '553222222355', '553222222355',
+      '.5322222235.', '.5333333335.', '.5555555555.', '....5555....',
+    ];
+    const size = seats.length === 2 ? 6 : seats.length <= 4 ? 8 : 12;
+    const offset = (12 - size) / 2;
     this.W = this.H = this.tileSize = size;
+    this.boardOffset = offset;
     this.tiles = [{x0: 0, y0: 0}];
-    this.valid = new Set(Array.from({length: size * size}, (_,i) => cellKey(i % size, Math.floor(i / size))));
-    this.corners = new Set([[0,0],[size-1,0],[0,size-1],[size-1,size-1]].map(([x,y]) => cellKey(x,y)));
-    // Keep these coordinates synchronized with print/board.json (tested).
-    const regularFood = [[2, 2], [7, 2], [2, 7], [7, 7], [4, 3], [5, 3], [3, 4], [6, 5], [4, 6], [5, 6]];
-    const specialFood = [[4, 4], [5, 5], [5, 4]];
-    this.spots = new Map(regularFood.map(([x,y]) => [cellKey(x-offset,y-offset), {kind:'food',value:1}]));
-    this.food = new Map(specialFood.slice(0, Math.floor(seats.length / 2)).map(([x,y]) =>
+    this.valid = new Set();
+    this.zones = new Map();
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+      const zone = Number(zones[y + offset][x + offset]);
+      if (zone <= seats.length) {
+        this.valid.add(cellKey(x,y));
+        this.zones.set(cellKey(x,y), zone);
+      }
+    }
+    this.corners = new Set([[0,0],[size-1,0],[0,size-1],[size-1,size-1]]
+      .filter(([x,y]) => this.inBounds(x,y)).map(([x,y]) => cellKey(x,y)));
+    const regularFood = [[5,4],[6,4],[4,5],[7,6],[5,7],[6,7],[3,3],[8,3],[3,8],[8,8],[4,7],[7,4],[2,2],[9,2],[2,9],[9,9],[2,5],[9,6],[6,2],[5,9],[6,1],[5,10],[1,5],[10,6],[4,1],[7,10],[1,7],[10,4]];
+    const specialFood = [[5,5]];
+    this.spots = new Map(regularFood.filter(([x,y]) => this.inBounds(x-offset,y-offset))
+      .map(([x,y]) => [cellKey(x-offset,y-offset), {kind:'food',value:1}]));
+    this.food = new Map(specialFood.map(([x,y]) =>
       [cellKey(x-offset,y-offset), {kind:'special',value:2}]));
 
     // the Special deck: 9 effects × 2 copies, shuffled; discards recycle
@@ -577,6 +599,11 @@ class Engine {
 
   inBounds(x, y) { return x >= 0 && y >= 0 && x < this.W && y < this.H && this.valid.has(cellKey(x, y)); }
 
+  // Includes the stepped perimeter of the larger board, not occupied snake cells.
+  onOuterEdge(x, y) {
+    return this.inBounds(x,y) && DIR_LIST.some(d=>!this.inBounds(x+DIRS[d].dx,y+DIRS[d].dy));
+  }
+
   /** Whatever is edible at a cell: a one-shot pickup covers the printed spot. */
   edibleAt(k) { return this.food.get(k) ?? this.spots.get(k) ?? null; }
 
@@ -608,14 +635,14 @@ class Engine {
 
   /** Validate a full placement chain [head, …]: the right number of DISTINCT
       contiguous cells, in-bounds, free of snakes and one-shot pickups, and
-      any contiguous empty cells are allowed. Printed food
+      at least one segment must touch an outer edge. Printed food
       spots may be covered — a placement never eats what it covers. */
   validChain(cells, requireCorner = null) {
     if (!Array.isArray(cells) || cells.length !== this.spawnFootprint()) return false;
     if (requireCorner === null) requireCorner = false;
     const occ = this.occupancy();
     const seen = new Set();
-    let touchesCorner = false;
+    let touchesCorner = false, touchesEdge = false;
     for (let i = 0; i < cells.length; i++) {
       const c = cells[i];
       if (!this.inBounds(c.x, c.y)) return false;
@@ -623,9 +650,10 @@ class Engine {
       if (seen.has(k) || occ.has(k) || this.food.has(k)) return false;   // pickups block; spots don't
       seen.add(k);
       if (this.corners.has(k)) touchesCorner = true;
+      if (this.onOuterEdge(c.x,c.y)) touchesEdge = true;
       if (i > 0 && Math.abs(c.x - cells[i - 1].x) + Math.abs(c.y - cells[i - 1].y) !== 1) return false;
     }
-    return requireCorner ? touchesCorner : true;
+    return touchesEdge && (!requireCorner || touchesCorner);
   }
 
   /** Enumerate every legal chain (optionally only corner-touching ones). */
@@ -936,12 +964,14 @@ class Engine {
       // You are worth points equal to how far your snake has grown: every
       // segment gained scores 1 point on the spot. Dying neither adds nor
       // removes anything — you already have them.
+      const multiplier = p.fx['victory-lap'] ? 2 : 1;
       if (m.growUnits > 0) {
-        p.score += m.growUnits;
-        events.push({ t: 'grow', seat: p.seat, pts: m.growUnits, at });
+        const pts = m.growUnits * multiplier;
+        p.score += pts;
+        events.push({ t: 'grow', seat: p.seat, pts, at });
       }
       if (pointUnits > 0) {
-        const pts = pointUnits * this.cfg.maxLengthFoodBonus;
+        const pts = pointUnits * this.cfg.maxLengthFoodBonus * multiplier;
         p.score += pts;
         this.stats.bonusPoints += pts;
         if (pts > 0) events.push({ t: 'bonus', seat: p.seat, pts, at });
@@ -951,7 +981,7 @@ class Engine {
     return events;
   }
 
-  /** Death replaces only the pre-step head and tail; score stays banked. */
+  /** Death replaces only the pre-step head and tail; score stays unchanged. */
   killSnake(p, cause, clearedTail, events, crashAt) {
     const lenAtDeath = p.body.length + (clearedTail ? 1 : 0);
     const pts = 0;                    // points were scored as the snake grew; dying costs nothing extra
@@ -975,15 +1005,11 @@ class Engine {
     events.push({ t: 'death', seat: p.seat, cause, len: lenAtDeath, pts, chips, at: crashAt });
   }
 
-  /** Scores are already banked. No death or final cash-out. */
+  /** Compare points already earned from food; no final score award. */
   endGame(reason) {
     this.gameOver = true;
     this.endReason = reason;
     const events = [];
-    for (const p of this.players) {
-      if (!p.alive) continue;
-      void p;                         // scores are already current — no end-of-game cash-out
-    }
     const top = Math.max(...this.players.map((p) => p.score));
     this.winnerSeats = this.players.filter(p => p.score === top).map(p => p.seat);
     this.winnerSeat = rngPick(this.rng, this.winnerSeats); // representative for legacy simulation counters
@@ -1000,14 +1026,7 @@ class Engine {
    */
   nextRound() {
     const events = [];
-    // Victory Lap: at the end of the round, a living player scores their
-    // length (a dead one gets nothing)
-    for (const p of this.players) {
-      if (p.fx['victory-lap'] && p.alive) {
-        p.score += p.body.length;
-        events.push({ t: 'victorylap', seat: p.seat, pts: p.body.length });
-      }
-    }
+    // Food is the only scoring event, including while Victory Lap is active.
     if (this.players.some((p) => p.score >= this.cfg.pointsToWin)) {
       events.push(...this.endGame('score'));
       return { events };
@@ -1363,27 +1382,31 @@ const Renderer = {
     const s = this.cell;
     ctx.clearRect(0, 0, this.cssW ?? 400, this.cssH ?? 400);
 
-    // mini-board cells on a void background (cells outside tiles are walls)
+    // Printed white / light-gray / dark-gray player-count zones.
     ctx.fillStyle = '#05080f';
     ctx.fillRect(0, 0, W * s, H * s);
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       if (engine && !engine.valid.has(cellKey(x, y))) continue;
-      ctx.fillStyle = (x + y) % 2 ? '#0d1526' : '#0b1220';
+      ctx.fillStyle = ({2:'#ffffff',3:'#efefef',5:'#d9d9d9'})[engine?.zones.get(cellKey(x,y))] || '#ffffff';
       ctx.fillRect(this.px(x), this.px(y), s, s);
+      ctx.strokeStyle = '#7b8187';
+      ctx.lineWidth = .65;
+      ctx.strokeRect(this.px(x), this.px(y), s, s);
     }
 
-    // hairline grid over valid area + bold seams at mini-board edges
-    ctx.strokeStyle = 'rgba(148,163,184,0.08)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let i = 1; i < W; i++) { ctx.moveTo(this.px(i) + .5, 0); ctx.lineTo(this.px(i) + .5, H * s); }
-    for (let i = 1; i < H; i++) { ctx.moveTo(0, this.px(i) + .5); ctx.lineTo(W * s, this.px(i) + .5); }
-    ctx.stroke();
     if (!engine) return;
-    ctx.strokeStyle = 'rgba(148,163,184,0.3)';
+    // Outline exposed edges, including the cut-out corners.
+    ctx.strokeStyle = '#172b38';
     ctx.lineWidth = 1.5;
-    for (const tile of engine.tiles)
-      ctx.strokeRect(this.px(tile.x0) + .75, this.px(tile.y0) + .75, engine.tileSize * s - 1.5, engine.tileSize * s - 1.5);
+    ctx.beginPath();
+    for (const k of engine.valid) {
+      const x=k&63, y=k>>6, px=this.px(x), py=this.px(y);
+      if (!engine.inBounds(x-1,y)) { ctx.moveTo(px,py); ctx.lineTo(px,py+s); }
+      if (!engine.inBounds(x+1,y)) { ctx.moveTo(px+s,py); ctx.lineTo(px+s,py+s); }
+      if (!engine.inBounds(x,y-1)) { ctx.moveTo(px,py); ctx.lineTo(px+s,py); }
+      if (!engine.inBounds(x,y+1)) { ctx.moveTo(px,py+s); ctx.lineTo(px+s,py+s); }
+    }
+    ctx.stroke();
 
     // printed spots (persist forever; drawn under snakes & pickups)
     for (const [k, f] of engine.spots) {
@@ -1444,6 +1467,11 @@ const Renderer = {
     };
     for (const [k, f] of engine.food) {
       const x = this.center(k & 63), y = this.center(k >> 6);
+      if (f.kind === 'special' && SPECIAL_FOOD_IMAGE.complete && SPECIAL_FOOD_IMAGE.naturalWidth) {
+        ctx.drawImage(SPECIAL_FOOD_IMAGE,x-s*.32,y-s*.32,s*.64,s*.64);
+        stamp2(x,y,'#43217a');
+        continue;
+      }
       {
         // snake food (dropped by a death): a yellow glass dome, seen from the side
         ctx.save();
@@ -1616,7 +1644,7 @@ const LIVE = {
     this.engine = new Engine(cfg, seats, mulberry32((Math.random() * 0xffffffff) >>> 0));
     const events = this.engine.setup();
     clearLog();
-    log(`— New game · ${cfg.playerCount >= 5 ? 10 : 8}×${cfg.playerCount >= 5 ? 10 : 8} board · first to ${cfg.pointsToWin} pts —`);
+    log(`— New game · ${this.engine.W}×${this.engine.H} footprint / ${this.engine.valid.size} cells · first to ${cfg.pointsToWin} pts —`);
     consumeEvents(events);
     this.multiHuman = seats.filter((s) => !s.isBot).length > 1;
     Renderer.effects = [];
@@ -2090,7 +2118,7 @@ function renderHumanStrip() {
         ${p.specials.map((slug, i) => {
           const sp = SPECIAL_BY_SLUG[slug];
           return `<button data-play-special="${i}" ${sp.auto ? 'disabled' : ''}
-            title="${sp.auto ? 'plays itself if a movement tile would crash' : 'play now (lasts this round)'}"
+            title="${sp.hint || (sp.auto ? 'plays itself if a movement tile would crash' : 'play now (lasts this round)')}"
             class="px-1.5 py-0.5 rounded border font-bold ${sp.auto
               ? 'bg-slate-800 text-slate-500 border-slate-700 cursor-default'
               : 'bg-violet-900/60 text-violet-200 border-violet-600 hover:bg-violet-700'}">${sp.icon} ${sp.name}${sp.auto ? ' (auto)' : ''}</button>`;
@@ -2154,7 +2182,7 @@ function renderPlacementStrip() {
         <span class="w-3 h-3 rounded-full" style="background:${p.color}"></span>
         <b>${esc(p.name)}</b>
         <span class="text-slate-400 text-xs">🐣 place your snake — ${stepText}</span>
-        <span class="ml-auto text-[11px] text-slate-500">${need} contiguous empty cells anywhere · covered food isn't eaten · ⏸ panic timer paused</span>
+        <span class="ml-auto text-[11px] text-slate-500">${need} contiguous empty cells · any segment must touch an outer edge · ⏸ panic timer paused</span>
       </div>
       <div class="flex items-center gap-3">
         <div class="flex gap-1.5">${pips}</div>
@@ -2337,11 +2365,6 @@ function consumeEvents(events) {
       const p = e.players[ev.seat];
       log(`🔁 ${esc(p.name)} flip-flopped: head and tail swapped`, p.color);
     }
-    else if (ev.t === 'victorylap') {
-      const p = e.players[ev.seat];
-      sounds.add('cashout');
-      log(`🏁 ${esc(p.name)}'s Victory Lap scores +${ev.pts}`, p.color);
-    }
     else if (ev.t === 'milestone') {
       const p = e.players[ev.seat];
       sounds.add('bounty');
@@ -2351,11 +2374,6 @@ function consumeEvents(events) {
       const p = e.players[ev.seat];
       sounds.add('bonus');
       log(`⭐ ${esc(p.name)} is at max length — food converts to +${ev.pts} bonus pts`, p.color);
-    }
-    else if (ev.t === 'cashout') {
-      const p = e.players[ev.seat];
-      sounds.add('cashout');
-      log(`🏁 ${esc(p.name)} cashes out length ${ev.len} for +${ev.pts} pts`, p.color);
     }
     else if (ev.t === 'respawn') {
       sounds.add('place');
@@ -2422,7 +2440,7 @@ function renderSimResults(a) {
     <div class="space-y-4 fade-in">
       <div class="flex items-baseline gap-3 flex-wrap">
         <h2 class="text-lg font-bold text-white">Simulation results</h2>
-        <span class="text-xs text-slate-500">${a.runs} games · ${a.cfg.playerCount >= 5 ? 10 : 8}×${a.cfg.playerCount >= 5 ? 10 : 8} board · ${a.cfg.playerCount} bots ·
+        <span class="text-xs text-slate-500">${a.runs} games · ${a.cfg.playerCount===2?'6×6':a.cfg.playerCount<=4?'8×8':'shaped 12×12'} board · ${a.cfg.playerCount} bots ·
           first to ${a.cfg.pointsToWin} pts · ${fmt1(a.ms)} ms total (${fmt1(a.ms / a.runs)} ms/game)</span>
       </div>
 

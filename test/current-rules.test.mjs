@@ -14,15 +14,41 @@ try {
   const check=(ok,message)=>{if(!ok)throw Error(message)};
   const make=(n=4,over={})=>new Engine(makeConfig({playerCount:n,...over}),Array.from({length:n},(_,i)=>({name:'P'+i,isBot:true})),()=>.8);
   for(const n of [2,3,4,5,6]){
-   const e=make(n),size=n>=5?10:8,off=size===8?1:0;
-   check(e.W===size&&e.H===size&&e.valid.size===size*size,`${n} players: dimensions`);
-   check(e.spots.size===10&&e.food.size===Math.floor(n/2),'food counts');
-   for(const [x,y] of board.regularFood)check(e.spots.get(K(x-off,y-off))?.value===1,'print/digital regular food');
-   for(const [x,y] of board.specialFood.slice(0,Math.floor(n/2)))check(e.food.get(K(x-off,y-off))?.kind==='special','print/digital special food');
+   const e=make(n),size=n===2?6:n<=4?8:12,off=(12-size)/2;
+   check(e.W===size&&e.H===size&&e.valid.size===(n===2?36:n<=4?64:116),`${n} players: dimensions`);
+   check(e.spots.size===(n===2?12:n<=4?20:28)&&e.food.size===1,'food counts');
+   for(let y=0;y<size;y++)for(let x=0;x<size;x++) {
+    const zone=Number(board.zones[y+off][x+off]);
+    check(e.inBounds(x,y)===(zone<=n),'print/digital zone geometry');
+    if(e.inBounds(x,y))check(e.zones.get(K(x,y))===zone,'print/digital zone color');
+   }
+   for(const [x,y] of board.regularFood.filter(([x,y])=>e.inBounds(x-off,y-off)))check(e.spots.get(K(x-off,y-off))?.value===1,'print/digital regular food');
+   for(const [x,y] of board.specialFood)check(e.food.get(K(x-off,y-off))?.kind==='special','print/digital special food');
+   const [special]=e.food.keys();
+   check([size/2-1,size/2].includes(special&63)&&[size/2-1,size/2].includes(special>>6),'special is central');
    check(e.spawnFootprint()===3&&e.cfg.maxSnakeLength===13,'length defaults');
    check(e.cfg.freeBoostsPerRound===1&&e.cfg.panicSeconds===15,'boost/timer defaults');
   }
   const put=(e,body)=>{const p=e.players[0];p.body=body.map(([x,y])=>({x,y}));p.alive=true;p.facing='right';return p};
+  // A boost cannot cut across an absent corner; legal placement cannot use it.
+  const shaped=make(6);shaped.spots.clear();shaped.food.clear();
+  let edge=put(shaped,[[4,0],[5,0],[6,0]]);edge.score=7;edge.commands=[{dir:'left',boost:true}];
+  check(!shaped.validChain([{x:3,y:0},{x:4,y:0},{x:5,y:0}]),'void blocks placement');
+  shaped.beginTick(0);while(shaped.stepTick().more){}shaped.finishTick();
+  check(!edge.alive&&edge.score===7,'void kills without changing score');
+  check([...shaped.food.keys()].every(k=>shaped.inBounds(k&63,k>>6)),'no food drops in void');
+  for(const n of [2,3,4,5,6]) {
+   const e=make(n);e.setup();e.respawnDead();
+   check(e.players.every(p=>p.alive&&p.body.every(c=>e.inBounds(c.x,c.y))),`${n} players can spawn`);
+   check(e.players.every(p=>p.body.some(c=>e.onOuterEdge(c.x,c.y))),`${n} players spawn on edge`);
+  }
+  const placement=make(6);placement.food.clear();
+  check(placement.validChain([{x:4,y:1},{x:4,y:0},{x:5,y:0}]),'middle can touch edge');
+  check(placement.validChain([{x:3,y:3},{x:3,y:2},{x:3,y:1}]),'tail can touch stepped edge');
+  check(!placement.validChain([{x:4,y:4},{x:5,y:4},{x:6,y:4}]),'interior placement rejected');
+  // If every edge is blocked, wait rather than spawning illegally in the middle.
+  for(const k of placement.valid)if(placement.onOuterEdge(k&63,k>>6))placement.food.set(k,{kind:'bounty',value:2});
+  check(placement.smartPlacement()===null,'no interior fallback when perimeter full');
   // Exactly two endpoints, including the tail lifted during a fatal step.
   const e=make();e.spots.clear();e.food.clear();
   let p=put(e,[[0,2],[1,2],[2,2],[3,2]]);p.commands=[{dir:'left'}];
@@ -45,6 +71,17 @@ try {
    const {e,p}=eat(len);check(p.body.length===len+gain&&p.score===score&&p.specials.length===1&&!e.food.size,'special food growth/score/draw/consumption');
   }
   const nom=eat(13,'special',true);check(nom.p.score===6&&nom.p.specials.length===1,'Nom Nom applies to special food');
+  for(const [len,value,expected] of [[3,1,2],[3,2,4],[12,2,6],[13,2,8]]) {
+   const e=make();e.spots.clear();e.food.clear();
+   const p=put(e,[[3,3],...Array.from({length:len-1},()=>[2,3])]);
+   p.specials=['victory-lap'];e.playSpecial(p,'victory-lap');
+   e.food.set(K(4,3),{kind:'bounty',value});p.commands=[{dir:'right'}];
+   e.beginTick(0);while(e.stepTick().more){}e.finishTick();
+   check(p.score===expected,'Victory Lap doubles immediate food points');
+   const scored=p.score;e.nextRound();check(p.score===scored,'round end awards nothing');
+   e.killSnake(p,'wall',null,[],{x:4,y:3});check(p.score===scored,'death awards nothing');
+   e.endGame('roundcap');check(p.score===scored,'end game awards nothing');
+  }
   check(nom.p.boosts===0&&eat(13,'bounty').p.boosts===0,'capped feeding never repeats the last growth milestone');
   for(const len of [5,8,12]){const {p}=eat(len,'bounty');check(p.boosts===1,'each growth milestone awards an extra');}
   const milestone=eat(12,'bounty');milestone.p.boosts=4;milestone.e.killSnake(milestone.p,'wall',null,[],{x:0,y:0});check(milestone.p.boosts===4,'unspent extras survive death');
